@@ -150,7 +150,7 @@ export const MIN_REGEX_LITERAL_RUN = 3;
 /** At most one judge rubric per suite (v2 check policy). */
 export const MAX_JUDGE_CHECKS_PER_SUITE = 1;
 
-const DEFAULT_MAX_TOKENS = 16000;
+const DEFAULT_MAX_TOKENS = 32000;
 
 /** The cold probe is one short answer. It never needs a long generation. */
 export const DEFAULT_SCREEN_MAX_TOKENS = 400;
@@ -1358,11 +1358,31 @@ async function askJudge(
   // No server-side refusal fallback on purpose: a fallback would silently swap the
   // judge model out from under `generatorModel`/`suiteHash`, and DESIGN 3's pinned
   // -model discipline says refuse rather than quietly change the record.
-  const message = await client.messages.create(params);
+  let message = await client.messages.create(params);
   if (message.stop_reason === 'refusal') {
     throw new TaskSynthesisError('refusal', 'judge model refused to generate the task suite');
   }
-  return parseTaskPayload(textOf(message));
+  // Adaptive thinking on a hard generation prompt can consume the entire token
+  // ceiling before any text block exists (observed live: three consecutive
+  // "judge returned no text" failures against real servers, stop_reason
+  // max_tokens, all output spent on thinking). One retry with thinking off is
+  // a delivery fallback, not a model swap: same model, same prompt, same
+  // schema, so the pinned-generator discipline holds.
+  if (textOf(message).length === 0 && message.stop_reason === 'max_tokens') {
+    const { thinking: _dropped, ...rest } = params;
+    message = await client.messages.create(rest as Anthropic.MessageCreateParamsNonStreaming);
+    if (message.stop_reason === 'refusal') {
+      throw new TaskSynthesisError('refusal', 'judge model refused to generate the task suite');
+    }
+  }
+  const text = textOf(message);
+  if (text.length === 0) {
+    throw new TaskSynthesisError(
+      'empty',
+      `judge returned no text (stop_reason: ${String(message.stop_reason)})`
+    );
+  }
+  return parseTaskPayload(text);
 }
 
 // ---------------------------------------------------------------------------
