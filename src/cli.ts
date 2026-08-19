@@ -71,7 +71,7 @@ import type {
 
 const HARNESS_VERSION = '0.1.0';
 const SOURCE = `fitness-report@${HARNESS_VERSION}`;
-const DEFAULT_PUBLISH_BASE = 'https://fitness-report.pages.dev';
+const DEFAULT_PUBLISH_BASE = 'https://fitnessreport.dev';
 
 /**
  * Persisted BEFORE the first call (DESIGN decision 11), and honest about v0:
