@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-19T21:24:27.061Z","label":"huggingface-co","command":["fitness-report","https://huggingface.co/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"09a82bf5edcf484754efcbedbabf78ab7f03eca0709a2bb0403abf5439fc8e7b"}}
+{"t":"2026-08-19T21:26:16.443Z","type":"end","reason":"eval_complete","durationMs":109382}

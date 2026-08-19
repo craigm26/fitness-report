@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-19T21:44:44.822Z","label":"mcp-deepwiki-com","command":["fitness-report","https://mcp.deepwiki.com/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"f6d18fb34a79746cbdb23db7042ef74517248257e9778e5fb93134c9f045a457"}}
+{"t":"2026-08-19T21:45:12.201Z","type":"end","reason":"eval_complete","durationMs":27379}

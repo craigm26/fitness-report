@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-19T22:12:36.293Z","label":"mcp-vercel-com","command":["fitness-report","https://mcp.vercel.com/docs/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"29351960a952cb4ef49b0926f5ad18591b0c91ff37dc388284f5bafc61b55def"}}
+{"t":"2026-08-19T22:14:04.829Z","type":"end","reason":"eval_complete","durationMs":88536}

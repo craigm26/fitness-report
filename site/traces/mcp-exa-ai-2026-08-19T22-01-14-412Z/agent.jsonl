@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-19T22:01:14.412Z","label":"mcp-exa-ai","command":["fitness-report","https://mcp.exa.ai/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"9850210e553aee0783fc53742c9404195d679f7256d326c7cf7f07013c556911"}}
+{"t":"2026-08-19T22:01:40.585Z","type":"end","reason":"eval_complete","durationMs":26173}

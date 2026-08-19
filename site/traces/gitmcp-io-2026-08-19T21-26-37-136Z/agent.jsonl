@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-19T21:26:37.136Z","label":"gitmcp-io","command":["fitness-report","https://gitmcp.io/docs"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"e29b22054d8a421d6c4aa6cbaf4892333a2d4a44f75c5e638845cfd0834c18db"}}
+{"t":"2026-08-19T21:27:18.331Z","type":"end","reason":"eval_complete","durationMs":41195}

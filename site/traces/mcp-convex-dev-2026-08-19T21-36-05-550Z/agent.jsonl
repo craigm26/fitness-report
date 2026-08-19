@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-19T21:36:05.550Z","label":"mcp-convex-dev","command":["fitness-report","https://mcp.convex.dev/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"b4079f9c0dc21797fa56770b5e6d6c4d5b6fd7a1f39c2b688a79cad1d08ba343"}}
+{"t":"2026-08-19T21:37:43.331Z","type":"end","reason":"eval_complete","durationMs":97781}
