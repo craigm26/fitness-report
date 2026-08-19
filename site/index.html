@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fitness Report leaderboard</title>
+<meta name="description" content="Can an agent actually get the job done with your MCP server? Scored runs, refusals when the eval itself is invalid, and a replayable recording behind every finding.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip" href="#leaderboard">Skip to the leaderboard</a>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">fitness-report / 1</p>
+    <h1>Fitness Report</h1>
+    <p class="lede">
+      Find out whether agents can actually drive your MCP server before your customers do.
+      One scored run is one server version: first-try task success, calls and tokens per completed
+      task, per-tool failure attribution, and a signed replayable recording of everything the server did.
+    </p>
+    <p class="lede lede-refusal">
+      Before anything is scored, validity gates run against our own generated task suite. When the
+      eval itself is invalid we refuse to emit a score, and the refusal is published in the same table
+      as the scores. A refusal is a result here, never a blank cell and never a missing row.
+    </p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section id="leaderboard" aria-labelledby="leaderboard-heading">
+    <div class="section-head">
+      <h2 id="leaderboard-heading">Leaderboard</h2>
+      <p class="section-note" id="summary-line" role="status">Loading runs.</p>
+    </div>
+
+    <ul class="legend" aria-label="How to read the states">
+      <li><span class="pill pill-scored">SCORED</span> the gates passed and the run produced numbers.</li>
+      <li><span class="pill pill-refused">REFUSED</span> a named gate stopped the run. The gate, its counts and its reason are shown in place of a score.</li>
+      <li><span class="pill pill-unknown">could not check</span> a probe did not apply to this connection. Reported as unknown, never as a pass.</li>
+    </ul>
+
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="leaderboard-heading">
+      <table class="board" id="board">
+        <caption class="sr-only">MCP servers with their run outcome, first-try success interval, protocol probe results, credential context and replay link.</caption>
+        <thead>
+          <tr>
+            <th scope="col" class="col-server">Server</th>
+            <th scope="col" class="col-outcome">Outcome and score</th>
+            <th scope="col" class="col-interval">First-try success<span class="th-sub">Wilson 95% interval</span></th>
+            <th scope="col" class="col-spec">Spec currency</th>
+            <th scope="col" class="col-hygiene">Protocol hygiene</th>
+            <th scope="col" class="col-cred">Credential context</th>
+            <th scope="col" class="col-replay">Replay</th>
+          </tr>
+        </thead>
+        <tbody id="board-body">
+          <tr class="state-row"><td colspan="7">Loading runs from <code>data/runs.json</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="table-foot">
+      Rows are listed by the first-try point estimate, but a row only takes a lower position when another
+      interval sits entirely above it. Rows that nothing separates share a position and are marked as tied,
+      and where two rows still overlap across positions the lower one says so on its own row. Servers scored
+      under different runner models are never ranked against each other.
+    </p>
+
+    <noscript>
+      <p class="notice">
+        This page renders from <a href="data/runs.json">data/runs.json</a>. With scripting off, read that
+        file directly. Every run in it carries its own outcome, gate ledger and trace links.
+      </p>
+    </noscript>
+  </section>
+
+  <section id="methods" aria-labelledby="methods-heading">
+    <div class="section-head">
+      <h2 id="methods-heading">Methods</h2>
+      <p class="section-note">What the columns mean, and where we knowingly differ from the code we ported.</p>
+    </div>
+
+    <h3>What this measures, and what it does not</h3>
+    <blockquote class="position">
+      <p>Conformance asks whether the server speaks MCP correctly. Fitness Report asks whether an agent
+      can actually get the job done with it.</p>
+    </blockquote>
+    <p class="position-note">
+      The word in that first sentence belongs to the official suite at
+      <a href="https://github.com/modelcontextprotocol/conformance" rel="noopener noreferrer">github.com/modelcontextprotocol/conformance</a>,
+      which is a different project with a different job. Run it too. This table is about task outcomes.
+    </p>
+
+    <blockquote class="position">
+      <p>MCP Atlas asks which model is best at using tools. Fitness Report asks which server is worth using.</p>
+    </blockquote>
+    <p class="position-note">
+      The runner model is pinned into every score record and printed on every ranked group. Two servers
+      driven by different runner models are reported side by side but never ranked against each other,
+      because the token accounting is not comparable across tokenizers.
+    </p>
+
+    <h3>Gate order</h3>
+    <p>
+      Gates run cheapest first and stop at the first failure, so a broken eval never spends model budget:
+      free structural checks, an answer-leak string check and the zero-token protocol probes, then cheap
+      null-model baselines (no tools, stubbed-empty, random valid arguments), then the paid construct gate
+      where a reference agent with full information must reach the answer key at a rate of at least 0.90,
+      and only then the full drive. An indeterminate baseline halts exactly like a failure. On any gate
+      failure the report carries no score field at all, plus the failing gate with its counts, threshold,
+      alpha, p-value and reason string. Those are the strings printed in the table.
+    </p>
+    <p>
+      With a median of about 2.5 tools across the open server roster, a suite below 8 tasks is refused as
+      INSUFFICIENT_SURFACE rather than published as a two-task 100%.
+    </p>
+
+    <h3>Two documented divergences from evalgate</h3>
+    <p>The gate math is ported from evalgate. It differs in exactly two places, and we own both here.</p>
+    <ol class="divergences">
+      <li>
+        <h4>Construct denominator: oracle errors count</h4>
+        <p>
+          evalgate silently shrinks the denominator when an oracle call throws, so three successes out of
+          three completed calls reads as 100% even when forty calls errored. That is wrong for flaky remote
+          servers, which is every remote server. Errors are gated on their own instead:
+          <code>errors / (n + errors) &gt; 0.05</code> resolves the run to COMPROMISED. A compromised run is
+          not a verdict about the server. It is a refusal to score, because the measurement did not complete.
+        </p>
+      </li>
+      <li>
+        <h4>Published PASS is symmetric with published FAIL</h4>
+        <p>
+          A pass on this page additionally requires that the Wilson 95% lower bound sits at or above the
+          threshold, or that the run's own n achieves the planned power against the detectable rate.
+          Exact binomial power is sawtoothed in n, so clearing the planned sample size is not the same
+          claim as being powered at it, and the run's actual n is what gets tested.
+          Otherwise the verdict is downgraded to EXTEND and no pass is published. A small sample that
+          happens to land above the line is not evidence, and publishing it while publishing failures at
+          full rigour would be asymmetric.
+        </p>
+      </li>
+    </ol>
+
+    <h3>Reading the interval</h3>
+    <p>
+      First-try success is shown as its Wilson 95% interval with the point estimate marked inside it. The
+      interval is the finding, not the point. Listing order uses the point estimate, but the position is a
+      dominance position: a row sits below another only when that other interval lies entirely above it.
+      Rows nothing separates share a position and are marked tied, and any remaining overlap between
+      neighbours is printed on the lower row, because at these sample sizes the order between two
+      overlapping rows carries no information. The intervals are computed once, in the run record. This
+      page only renders the stored numbers, so there is no second copy of the statistics to drift.
+    </p>
+
+    <h3>Protocol probes</h3>
+    <p>
+      The probe columns are deterministic, cost zero tokens and run before anything else, so a refused run
+      still reports them. Spec currency is the revision the connection actually negotiated. Protocol hygiene
+      counts the probe checks that passed, including whether the server accepts an impossible protocol
+      version, whether a mismatched method or name header is rejected, whether the modern server discovery
+      method is implemented, whether cache hints are present and correctly scoped, and what the deprecation
+      surface looks like. A probe that does not apply to a connection is reported as unknown, never folded
+      into the pass count.
+    </p>
+
+    <h3>Credential context</h3>
+    <p>
+      Every score is stamped with the credentials it was collected under: anonymous, free-key or owner-key.
+      Tool surfaces differ by credential on real servers, so a number collected anonymously is not the same
+      measurement as one collected with an owner key, and the two are labelled rather than merged.
+    </p>
+
+    <h3>Evidence</h3>
+    <p>
+      Every finding on this page links to the recorded session that justifies it. Each run publishes two
+      tapes, the MCP wire plane and the agent plane, served with permissive cross-origin headers and an
+      immutable cache, and the replay link opens both in the viewer in one merged timeline. Nothing is
+      embedded or loaded until you click. There are no bare counts here: if a claim has no recording behind
+      it, the row says so instead.
+    </p>
+    <p class="prior-art">
+      Prior art: MCPEval for model-driven task synthesis with machine-checkable predicates, evalgate for the
+      validity gate math, mcp-tape for the tape format and pairing statistics. What is added here is the
+      refusal, the signed replay behind every claim, and rewrite proposals tied to the recorded sessions
+      they were derived from.
+    </p>
+  </section>
+</main>
+
+<footer class="wrap site-foot">
+  <p>
+    Data source: <a href="data/runs.json">data/runs.json</a>. Tapes live under <code>/traces/</code> on this
+    same origin. Sample data ships with the repository so the page can be read before any real run exists.
+  </p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

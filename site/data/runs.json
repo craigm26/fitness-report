@@ -1,0 +1,878 @@
+[
+  {
+    "schema": "fitness-report/1",
+    "server": {
+      "url": "https://mcp.deepwiki.com/mcp",
+      "slug": "deepwiki",
+      "era": "modern",
+      "negotiatedVersion": "2026-07-28",
+      "serverInfo": {
+        "name": "deepwiki-mcp",
+        "version": "1.4.2"
+      },
+      "instructions": "Answer questions about a GitHub repository using its indexed wiki. Always pass repoName as owner/repo.",
+      "capabilities": {
+        "tools": {
+          "listChanged": true
+        },
+        "logging": {}
+      },
+      "transportShape": "sse",
+      "sessionful": false,
+      "credentialContext": "anonymous"
+    },
+    "run": {
+      "id": "2026-08-18T091244Z-deepwiki",
+      "startedAt": "2026-08-18T09:12:44.318Z",
+      "harnessVersion": "0.1.0",
+      "runnerModel": "claude-sonnet-5",
+      "judgeModel": "claude-opus-5",
+      "suiteHash": "sha256:0d9c41f7a5b83e2c6f1d90ab4477e5c3d8b2419fe07c65a3d1f8b204e9c7a611",
+      "taskBudget": 20000
+    },
+    "probes": {
+      "specCurrency": "2026-07-28",
+      "findings": [
+        {
+          "id": "spec-currency",
+          "pass": true,
+          "detail": "negotiated 2026-07-28 (modern era, >= 2026-07-28)",
+          "evidence": {
+            "negotiatedVersion": "2026-07-28",
+            "era": "modern"
+          }
+        },
+        {
+          "id": "bogus-version-accepted",
+          "pass": false,
+          "detail": "initialize offering protocolVersion 1999-01-01 was accepted with HTTP 200 and the impossible version was echoed back, so the server performs no version validation",
+          "evidence": {
+            "status": 200,
+            "offered": "1999-01-01",
+            "echoed": "1999-01-01",
+            "probeId": "fitness-probe-bogus-version"
+          }
+        },
+        {
+          "id": "header-mismatch-accepted",
+          "pass": true,
+          "detail": "a tools/call carrying a mismatched Mcp-Name header was rejected with HTTP 400 and JSON-RPC code -32020",
+          "evidence": {
+            "status": 400,
+            "code": -32020,
+            "sentName": "not-this-server"
+          }
+        },
+        {
+          "id": "server-discover-present",
+          "pass": true,
+          "detail": "server/discover answered with supportedVersions [2026-07-28, 2025-11-25]",
+          "evidence": {
+            "supportedVersions": [
+              "2026-07-28",
+              "2025-11-25"
+            ],
+            "hasInstructions": true
+          }
+        },
+        {
+          "id": "cache-hints",
+          "pass": true,
+          "detail": "tools/list cache hints: ttlMs=300000, cacheScope=public",
+          "evidence": {
+            "ttlMs": 300000,
+            "cacheScope": "public",
+            "credentialContext": "anonymous"
+          }
+        },
+        {
+          "id": "deprecation-surface",
+          "pass": true,
+          "detail": "no deprecated tools or parameters are declared on the current surface",
+          "evidence": {
+            "deprecatedTools": [],
+            "deprecatedParams": []
+          }
+        }
+      ]
+    },
+    "gates": {
+      "order": [
+        "structural",
+        "answer_leak",
+        "suite_size",
+        "plan_power",
+        "protocol_hygiene",
+        "null_baseline",
+        "construct",
+        "variance",
+        "order_invariance"
+      ],
+      "records": [
+        {
+          "gate": "structural",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "nGenerated": 12,
+            "nHolding": 12,
+            "admissionRate": 1,
+            "minGenerated": 8
+          }
+        },
+        {
+          "gate": "answer_leak",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "promptsScanned": 12,
+            "leaks": 0
+          }
+        },
+        {
+          "gate": "suite_size",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "nTasks": 12,
+            "minTasks": 8,
+            "toolCount": 3
+          }
+        },
+        {
+          "gate": "plan_power",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "threshold": 0.75,
+            "detectableRate": 0.5,
+            "plannedN": 12
+          }
+        },
+        {
+          "gate": "protocol_hygiene",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "checked": 6,
+            "failed": 1,
+            "note": "hygiene findings are reported as columns, they do not by themselves invalidate the eval"
+          }
+        },
+        {
+          "gate": "null_baseline",
+          "ok": true,
+          "costTier": "cheap",
+          "reason": "ok",
+          "verdict": {
+            "outcome": "FAIL",
+            "k": 1,
+            "n": 12,
+            "threshold": 0.5,
+            "alpha": 0.05,
+            "pValue": 0.003173828125
+          },
+          "detail": {
+            "noTools": 0,
+            "stubbedEmpty": 1,
+            "randomValidArgs": 0
+          }
+        },
+        {
+          "gate": "construct",
+          "ok": true,
+          "costTier": "paid",
+          "reason": "ok",
+          "verdict": {
+            "outcome": "PASS",
+            "k": 27,
+            "n": 30,
+            "threshold": 0.9,
+            "alpha": 0.05,
+            "pValue": 0.5886487604404933
+          },
+          "detail": {
+            "reps": 3,
+            "cases": 10,
+            "errors": 0,
+            "errorRate": 0,
+            "maxErrorRate": 0.05
+          }
+        },
+        {
+          "gate": "variance",
+          "ok": true,
+          "costTier": "paid",
+          "reason": "ok",
+          "detail": {
+            "repeats": 3,
+            "oracleExceptions": 0,
+            "spread": 0.083
+          }
+        },
+        {
+          "gate": "order_invariance",
+          "ok": true,
+          "costTier": "paid",
+          "reason": "ok",
+          "detail": {
+            "permutations": 2,
+            "tieRate": 0.083
+          }
+        }
+      ],
+      "extensionPolicy": {
+        "extensionSize": 6,
+        "maxExtensions": 3
+      },
+      "refusedAt": null
+    },
+    "outcome": "SCORED",
+    "score": {
+      "runnerModel": "claude-sonnet-5",
+      "firstTrySuccess": {
+        "rate": 0.8333333333333334,
+        "low": 0.5519636426153274,
+        "high": 0.9530358523851776,
+        "k": 10,
+        "n": 12
+      },
+      "eventualSuccess": {
+        "rate": 0.9166666666666666,
+        "low": 0.6461140782014047,
+        "high": 0.9851352905492264,
+        "k": 11,
+        "n": 12
+      },
+      "meanCallsPerCompletedTask": 2.6,
+      "meanTokensPerCompletedTask": 7412,
+      "meanCostPerCompletedTaskUsd": 0.0261,
+      "tools": [
+        {
+          "tool": "read_wiki_structure",
+          "calls": 14,
+          "errors": 0,
+          "failureClasses": {},
+          "p50Ms": 412,
+          "p95Ms": 980,
+          "declaredDestructive": false,
+          "inferredDestructive": false
+        },
+        {
+          "tool": "read_wiki_contents",
+          "calls": 11,
+          "errors": 2,
+          "failureClasses": {
+            "execution-error-recovered": 2
+          },
+          "p50Ms": 733,
+          "p95Ms": 2210,
+          "declaredDestructive": false,
+          "inferredDestructive": false
+        },
+        {
+          "tool": "ask_question",
+          "calls": 6,
+          "errors": 1,
+          "failureClasses": {
+            "execution-error-fatal": 1
+          },
+          "p50Ms": 1890,
+          "p95Ms": 4120,
+          "declaredDestructive": false,
+          "inferredDestructive": false
+        }
+      ],
+      "tasks": [
+        {
+          "taskId": "t01",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 5120,
+          "outputTokens": 610,
+          "costUsd": 0.0163,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t02",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 3,
+          "mrtrRounds": 0,
+          "inputTokens": 6180,
+          "outputTokens": 720,
+          "costUsd": 0.0195,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t03",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 5120,
+          "outputTokens": 610,
+          "costUsd": 0.0163,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t04",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 4980,
+          "outputTokens": 540,
+          "costUsd": 0.0154,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t05",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 5120,
+          "outputTokens": 610,
+          "costUsd": 0.0163,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t06",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 4,
+          "mrtrRounds": 0,
+          "inputTokens": 7320,
+          "outputTokens": 810,
+          "costUsd": 0.0227,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t07",
+          "firstTrySuccess": false,
+          "success": true,
+          "toolCalls": 5,
+          "mrtrRounds": 1,
+          "inputTokens": 9140,
+          "outputTokens": 1030,
+          "costUsd": 0.0286,
+          "failure": "execution-error-recovered",
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t08",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 5120,
+          "outputTokens": 610,
+          "costUsd": 0.0163,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t09",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 3,
+          "mrtrRounds": 0,
+          "inputTokens": 6410,
+          "outputTokens": 690,
+          "costUsd": 0.0197,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t10",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 5120,
+          "outputTokens": 610,
+          "costUsd": 0.0163,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t11",
+          "firstTrySuccess": true,
+          "success": true,
+          "toolCalls": 2,
+          "mrtrRounds": 0,
+          "inputTokens": 5230,
+          "outputTokens": 580,
+          "costUsd": 0.0163,
+          "failure": null,
+          "destructiveWithoutConfirmation": 0
+        },
+        {
+          "taskId": "t12",
+          "firstTrySuccess": false,
+          "success": false,
+          "toolCalls": 6,
+          "mrtrRounds": 0,
+          "inputTokens": 11240,
+          "outputTokens": 1180,
+          "costUsd": 0.0343,
+          "failure": "execution-error-fatal",
+          "destructiveWithoutConfirmation": 0
+        }
+      ],
+      "destructiveWithoutConfirmation": 0,
+      "ambiguousParameters": [
+        {
+          "tool": "ask_question",
+          "param": "repoName",
+          "why": "the schema names the parameter repoName and the description does not say it must carry the owner prefix, so the agent sent a bare repository name in 3 of 6 calls and the server answered about the wrong project",
+          "evidence": "https://fitness-report.pages.dev/traces/2026-08-18T091244Z-deepwiki/mcp.jsonl"
+        }
+      ],
+      "schemaDrift": {
+        "checked": true,
+        "drifted": false,
+        "detail": null
+      },
+      "toolSurfaceDeltaByCredential": null
+    },
+    "rewrites": [
+      {
+        "tool": "ask_question",
+        "current": "Ask any question about a GitHub repository.",
+        "proposed": "Ask a question about one indexed GitHub repository. repoName must be owner/repo, for example vercel/next.js. Use read_wiki_structure first when you do not yet know which pages exist. Do not use this to search across repositories.",
+        "causalEvidence": "this description caused 3 of 6 wrong-target calls in the recorded sessions, all of them a bare repository name with no owner"
+      }
+    ],
+    "traceLinks": {
+      "mcp": "https://fitness-report.pages.dev/traces/2026-08-18T091244Z-deepwiki/mcp.jsonl",
+      "agent": "https://fitness-report.pages.dev/traces/2026-08-18T091244Z-deepwiki/agent.jsonl",
+      "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitness-report.pages.dev%2Ftraces%2F2026-08-18T091244Z-deepwiki%2Fmcp.jsonl;https%3A%2F%2Ffitness-report.pages.dev%2Ftraces%2F2026-08-18T091244Z-deepwiki%2Fagent.jsonl#view=calls"
+    },
+    "trace_stats": {
+      "schema": "mcp-tape.stats/1",
+      "mcp": {
+        "frames": 214,
+        "requests": 31,
+        "pairs": 31,
+        "unpaired": 0,
+        "toolResultErrors": 3
+      },
+      "llm": {
+        "turns": 48,
+        "toolUses": 31,
+        "toolResults": 31,
+        "echoedTurns": 0
+      }
+    }
+  },
+  {
+    "schema": "fitness-report/1",
+    "server": {
+      "url": "https://huggingface.co/mcp",
+      "slug": "huggingface",
+      "era": "legacy",
+      "negotiatedVersion": "2025-11-25",
+      "serverInfo": {
+        "name": "hf-mcp-server",
+        "version": "0.9.7"
+      },
+      "instructions": null,
+      "capabilities": {
+        "tools": {
+          "listChanged": false
+        }
+      },
+      "transportShape": "json",
+      "sessionful": true,
+      "credentialContext": "free-key"
+    },
+    "run": {
+      "id": "2026-08-18T101907Z-huggingface",
+      "startedAt": "2026-08-18T10:19:07.902Z",
+      "harnessVersion": "0.1.0",
+      "runnerModel": "claude-sonnet-5",
+      "judgeModel": "claude-opus-5",
+      "suiteHash": "sha256:5b17d2ea90c4f36819ad7e5c2f0b48d61397ca8e2b4f70d5c93a16e8f0247bd9",
+      "taskBudget": 20000
+    },
+    "probes": {
+      "specCurrency": "2025-11-25",
+      "findings": [
+        {
+          "id": "spec-currency",
+          "pass": false,
+          "detail": "negotiated 2025-11-25 (legacy era; the current revision is 2026-07-28)",
+          "evidence": {
+            "negotiatedVersion": "2025-11-25",
+            "era": "legacy"
+          }
+        },
+        {
+          "id": "bogus-version-accepted",
+          "pass": false,
+          "detail": "initialize offering protocolVersion 1999-01-01 was accepted with HTTP 200 and a session id was issued for it",
+          "evidence": {
+            "status": 200,
+            "offered": "1999-01-01",
+            "echoed": "1999-01-01",
+            "sessionIssued": true
+          }
+        },
+        {
+          "id": "header-mismatch-accepted",
+          "pass": null,
+          "detail": "could not check: the Mcp-Method and Mcp-Name headers are 2026-07-28 requirements; this connection negotiated 2025-11-25 (legacy)",
+          "evidence": {
+            "era": "legacy"
+          }
+        },
+        {
+          "id": "server-discover-present",
+          "pass": null,
+          "detail": "could not check: server/discover is a 2026-07-28 requirement; this connection negotiated 2025-11-25 (legacy)",
+          "evidence": {
+            "era": "legacy"
+          }
+        },
+        {
+          "id": "cache-hints",
+          "pass": null,
+          "detail": "could not check: ttlMs and cacheScope are 2026-07-28 fields; this connection negotiated 2025-11-25 (legacy)",
+          "evidence": {
+            "era": "legacy"
+          }
+        },
+        {
+          "id": "deprecation-surface",
+          "pass": true,
+          "detail": "2 tools declare a deprecation note and both name a replacement",
+          "evidence": {
+            "deprecatedTools": [
+              "model_search_v1",
+              "dataset_search_v1"
+            ]
+          }
+        }
+      ]
+    },
+    "gates": {
+      "order": [
+        "structural",
+        "answer_leak",
+        "suite_size",
+        "plan_power",
+        "protocol_hygiene",
+        "null_baseline",
+        "construct",
+        "variance",
+        "order_invariance"
+      ],
+      "records": [
+        {
+          "gate": "structural",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "nGenerated": 10,
+            "nHolding": 10,
+            "admissionRate": 1,
+            "minGenerated": 8
+          }
+        },
+        {
+          "gate": "answer_leak",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "promptsScanned": 10,
+            "leaks": 0
+          }
+        },
+        {
+          "gate": "suite_size",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "nTasks": 10,
+            "minTasks": 8,
+            "toolCount": 4
+          }
+        },
+        {
+          "gate": "plan_power",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "threshold": 0.75,
+            "detectableRate": 0.5,
+            "plannedN": 10
+          }
+        },
+        {
+          "gate": "protocol_hygiene",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "checked": 3,
+            "failed": 2,
+            "unknown": 3
+          }
+        },
+        {
+          "gate": "null_baseline",
+          "ok": true,
+          "costTier": "cheap",
+          "reason": "ok",
+          "verdict": {
+            "outcome": "FAIL",
+            "k": 0,
+            "n": 10,
+            "threshold": 0.5,
+            "alpha": 0.05,
+            "pValue": 0.0009765625
+          },
+          "detail": {
+            "noTools": 0,
+            "stubbedEmpty": 0,
+            "randomValidArgs": 0
+          }
+        },
+        {
+          "gate": "construct",
+          "ok": false,
+          "costTier": "paid",
+          "reason": "below_min_rate",
+          "verdict": {
+            "outcome": "FAIL",
+            "k": 22,
+            "n": 30,
+            "threshold": 0.9,
+            "alpha": 0.05,
+            "pValue": 0.007783619237921288
+          },
+          "detail": {
+            "reps": 3,
+            "cases": 10,
+            "errors": 1,
+            "errorRate": 0.0323,
+            "maxErrorRate": 0.05,
+            "disagreements": 8,
+            "note": "a reference agent holding the full answer key reached it 22 times in 30 attempts, so the answer keys are not what this suite measures"
+          }
+        }
+      ],
+      "extensionPolicy": {
+        "extensionSize": 5,
+        "maxExtensions": 3
+      },
+      "refusedAt": "construct"
+    },
+    "outcome": "GATE_FAILED",
+    "traceLinks": {
+      "mcp": "https://fitness-report.pages.dev/traces/2026-08-18T101907Z-huggingface/mcp.jsonl",
+      "agent": "https://fitness-report.pages.dev/traces/2026-08-18T101907Z-huggingface/agent.jsonl",
+      "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitness-report.pages.dev%2Ftraces%2F2026-08-18T101907Z-huggingface%2Fmcp.jsonl;https%3A%2F%2Ffitness-report.pages.dev%2Ftraces%2F2026-08-18T101907Z-huggingface%2Fagent.jsonl#view=calls"
+    },
+    "trace_stats": {
+      "schema": "mcp-tape.stats/1",
+      "mcp": {
+        "frames": 96,
+        "requests": 34,
+        "pairs": 34,
+        "unpaired": 0,
+        "toolResultErrors": 1
+      },
+      "llm": {
+        "turns": 60,
+        "toolUses": 30,
+        "toolResults": 30,
+        "echoedTurns": 0
+      }
+    }
+  },
+  {
+    "schema": "fitness-report/1",
+    "server": {
+      "url": "https://mcp.docs.astro.build/mcp",
+      "slug": "astro-docs",
+      "era": "modern",
+      "negotiatedVersion": "2026-07-28",
+      "serverInfo": {
+        "name": "astro-docs-mcp",
+        "version": "2.1.0"
+      },
+      "instructions": "Search the Astro documentation.",
+      "capabilities": {
+        "tools": {
+          "listChanged": false
+        }
+      },
+      "transportShape": "sse",
+      "sessionful": false,
+      "credentialContext": "anonymous"
+    },
+    "run": {
+      "id": "2026-08-18T104512Z-astro-docs",
+      "startedAt": "2026-08-18T10:45:12.441Z",
+      "harnessVersion": "0.1.0",
+      "runnerModel": "claude-sonnet-5",
+      "judgeModel": "claude-opus-5",
+      "suiteHash": "sha256:c40a8e6b7f215d039ab4e8127c6d5390fa2b7148e6c93d05af817be2340d96cc",
+      "taskBudget": 20000
+    },
+    "probes": {
+      "specCurrency": "2026-07-28",
+      "findings": [
+        {
+          "id": "spec-currency",
+          "pass": true,
+          "detail": "negotiated 2026-07-28 (modern era, >= 2026-07-28)",
+          "evidence": {
+            "negotiatedVersion": "2026-07-28",
+            "era": "modern"
+          }
+        },
+        {
+          "id": "bogus-version-accepted",
+          "pass": false,
+          "detail": "initialize offering protocolVersion 1999-01-01 was accepted with HTTP 200 and the impossible version was echoed back",
+          "evidence": {
+            "status": 200,
+            "offered": "1999-01-01",
+            "echoed": "1999-01-01"
+          }
+        },
+        {
+          "id": "header-mismatch-accepted",
+          "pass": true,
+          "detail": "a request carrying a mismatched Mcp-Name header was rejected with HTTP 400 and JSON-RPC code -32020",
+          "evidence": {
+            "status": 400,
+            "code": -32020
+          }
+        },
+        {
+          "id": "server-discover-present",
+          "pass": false,
+          "detail": "negotiated the modern era but server/discover returned method not found (-32601), and it is a MUST at 2026-07-28",
+          "evidence": {
+            "code": -32601,
+            "method": "server/discover"
+          }
+        },
+        {
+          "id": "cache-hints",
+          "pass": false,
+          "detail": "tools/list omitted the required cache hints (ttlMs=null, cacheScope=null)",
+          "evidence": {
+            "ttlMs": null,
+            "cacheScope": null,
+            "credentialContext": "anonymous"
+          }
+        },
+        {
+          "id": "deprecation-surface",
+          "pass": true,
+          "detail": "no deprecated tools or parameters are declared on the current surface",
+          "evidence": {
+            "deprecatedTools": [],
+            "deprecatedParams": []
+          }
+        }
+      ]
+    },
+    "gates": {
+      "order": [
+        "structural",
+        "answer_leak",
+        "suite_size",
+        "plan_power",
+        "protocol_hygiene",
+        "null_baseline",
+        "construct"
+      ],
+      "records": [
+        {
+          "gate": "structural",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "nGenerated": 4,
+            "nHolding": 4,
+            "admissionRate": 1
+          }
+        },
+        {
+          "gate": "answer_leak",
+          "ok": true,
+          "costTier": "free",
+          "reason": "ok",
+          "detail": {
+            "promptsScanned": 4,
+            "leaks": 0
+          }
+        },
+        {
+          "gate": "suite_size",
+          "ok": false,
+          "costTier": "free",
+          "reason": "below_minimum_suite_size",
+          "detail": {
+            "nTasks": 4,
+            "minTasks": 8,
+            "toolCount": 1,
+            "note": "one search tool cannot carry 8 independent tasks, so there is no honest score to publish here"
+          }
+        }
+      ],
+      "extensionPolicy": {
+        "extensionSize": 4,
+        "maxExtensions": 2
+      },
+      "refusedAt": "suite_size"
+    },
+    "outcome": "INSUFFICIENT_SURFACE",
+    "traceLinks": {
+      "mcp": "https://fitness-report.pages.dev/traces/2026-08-18T104512Z-astro-docs/mcp.jsonl",
+      "agent": "https://fitness-report.pages.dev/traces/2026-08-18T104512Z-astro-docs/agent.jsonl",
+      "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitness-report.pages.dev%2Ftraces%2F2026-08-18T104512Z-astro-docs%2Fmcp.jsonl;https%3A%2F%2Ffitness-report.pages.dev%2Ftraces%2F2026-08-18T104512Z-astro-docs%2Fagent.jsonl#view=calls"
+    },
+    "trace_stats": {
+      "schema": "mcp-tape.stats/1",
+      "mcp": {
+        "frames": 18,
+        "requests": 7,
+        "pairs": 7,
+        "unpaired": 0,
+        "toolResultErrors": 0
+      },
+      "llm": {
+        "turns": 0,
+        "toolUses": 0,
+        "toolResults": 0,
+        "echoedTurns": 0
+      }
+    }
+  }
+]

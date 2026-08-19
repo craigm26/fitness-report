@@ -1,0 +1,28 @@
+{
+  "name": "fitness-report",
+  "version": "0.1.0",
+  "description": "Find out whether agents can actually drive your MCP server before your customers do. Scored runs with validity gates that refuse to score an invalid eval, and replayable signed evidence for every finding.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "fitness-report": "./dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "cli": "tsx src/cli.ts",
+    "canary": "tsx canary/server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "mcp-tape": "^0.7.2",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,29 @@
+# Cloudflare Pages headers for the Fitness Report leaderboard.
+# Rules are listed least specific first so the specific ones win.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+# The run index. Short cache: a new run should show up without waiting out a CDN TTL.
+/data/runs.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=60, must-revalidate
+
+# Published tapes. Two files per run, addressed by run id, so the bytes at a
+# given path never change and the cache can be immutable.
+#
+# The permissive origin is deliberate and required: the replay viewer runs on
+# mcpreplay.dev and fetches these files from the browser, so without it every
+# replay link on the leaderboard is dead. These files carry only redacted,
+# already public evidence.
+/traces/*
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, HEAD, OPTIONS
+  Access-Control-Allow-Headers: Range, Content-Type
+  Access-Control-Expose-Headers: Content-Length, Content-Range
+  Access-Control-Max-Age: 86400
+  Cache-Control: public, max-age=31536000, immutable
+  Content-Type: application/x-ndjson; charset=utf-8
+  X-Content-Type-Options: nosniff
