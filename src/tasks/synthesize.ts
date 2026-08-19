@@ -212,8 +212,27 @@ export type ToolSurfaceEntry = {
 export type JudgeClient = {
   messages: {
     create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message>;
+    /**
+     * Optional streaming surface. The real Anthropic SDK REFUSES non-streaming
+     * `create` when `max_tokens` implies the request may exceed 10 minutes
+     * (observed live at 32k output tokens on opus), so when a client offers
+     * `stream`, askJudge uses it and awaits the final message. Stubs that only
+     * implement `create` keep working: the response content is identical.
+     */
+    stream?(params: Anthropic.MessageCreateParamsNonStreaming): { finalMessage(): Promise<Anthropic.Message> };
   };
 };
+
+/** One judge exchange, streaming when the client supports it. */
+async function judgeMessage(
+  client: JudgeClient,
+  params: Anthropic.MessageCreateParamsNonStreaming
+): Promise<Anthropic.Message> {
+  if (typeof client.messages.stream === 'function') {
+    return client.messages.stream(params).finalMessage();
+  }
+  return client.messages.create(params);
+}
 
 /**
  * The narrowing seam for the NULL SCREEN. Structurally identical to
@@ -1358,7 +1377,7 @@ async function askJudge(
   // No server-side refusal fallback on purpose: a fallback would silently swap the
   // judge model out from under `generatorModel`/`suiteHash`, and DESIGN 3's pinned
   // -model discipline says refuse rather than quietly change the record.
-  let message = await client.messages.create(params);
+  let message = await judgeMessage(client, params);
   if (message.stop_reason === 'refusal') {
     throw new TaskSynthesisError('refusal', 'judge model refused to generate the task suite');
   }
@@ -1370,7 +1389,7 @@ async function askJudge(
   // schema, so the pinned-generator discipline holds.
   if (textOf(message).length === 0 && message.stop_reason === 'max_tokens') {
     const { thinking: _dropped, ...rest } = params;
-    message = await client.messages.create(rest as Anthropic.MessageCreateParamsNonStreaming);
+    message = await judgeMessage(client, rest as Anthropic.MessageCreateParamsNonStreaming);
     if (message.stop_reason === 'refusal') {
       throw new TaskSynthesisError('refusal', 'judge model refused to generate the task suite');
     }
