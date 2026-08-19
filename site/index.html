@@ -25,6 +25,12 @@
       eval itself is invalid we refuse to emit a score, and the refusal is published in the same table
       as the scores. A refusal is a result here, never a blank cell and never a missing row.
     </p>
+
+    <p class="thesis">A leaderboard you can trust must be able to say: this measurement was not valid.</p>
+
+    <section class="stat-strip" id="stat-strip" aria-label="What this pass measured">
+      <p class="stat-strip-note">Counts render from <a href="data/runs.json">data/runs.json</a>.</p>
+    </section>
   </div>
 </header>
 
@@ -40,6 +46,7 @@
       <li><span class="pill pill-scored">SCORED</span> the gates passed and the run produced numbers.</li>
       <li><span class="pill pill-refused">REFUSED</span> a named gate stopped the run. The gate, its counts and its reason are shown in place of a score.</li>
       <li><span class="pill pill-unknown">could not check</span> a probe did not apply to this connection. Reported as unknown, never as a pass.</li>
+      <li><span class="legend-key">Why refused</span> opens the measured reason: the rates, the counts and the floor the run missed.</li>
     </ul>
 
     <div class="table-scroll" tabindex="0" role="region" aria-labelledby="leaderboard-heading">
@@ -68,11 +75,19 @@
       and where two rows still overlap across positions the lower one says so on its own row. Servers scored
       under different runner models are never ranked against each other.
     </p>
+    <p class="table-foot">
+      Every refused row opens on <span class="legend-key">Why refused</span>. What you get there is read from
+      that run and nothing else: the rate a model with no tools reached against the rate the agent reached,
+      or how many generated candidates survived admission against the floor they missed, or the reference
+      agent's own counts alongside what the tape shows the server did. Where a run's own record does not
+      carry a number, the panel says so rather than filling the space.
+    </p>
 
     <noscript>
       <p class="notice">
         This page renders from <a href="data/runs.json">data/runs.json</a>. With scripting off, read that
-        file directly. Every run in it carries its own outcome, gate ledger and trace links.
+        file directly. Every run in it carries its own outcome, gate ledger and trace links, and the counts
+        in the panels above are read from those records rather than stored anywhere else.
       </p>
     </noscript>
   </section>
@@ -116,6 +131,71 @@
     <p>
       With a median of about 2.5 tools across the open server roster, a suite below 8 tasks is refused as
       INSUFFICIENT_SURFACE rather than published as a two-task 100%.
+    </p>
+
+    <h3>How to read a refusal</h3>
+    <p>
+      Naming the gate is not the same as explaining it. Each refused row opens to the numbers the gate
+      actually saw, and the three families read like this.
+    </p>
+    <dl class="refusal-guide">
+      <dt>The null baseline killed it</dt>
+      <dd>
+        Three null models run the same suite before any paid tier: one with no tools at all, one whose tool
+        calls come back empty, and one calling tools with random valid arguments. The panel shows each of
+        those rates against the rate the agent reached with the real server, and the threshold between them.
+        When a model with no tools passes most of the suite, the tasks were answerable from what the model
+        already knew and the server was never in the loop. The finding is about our task generator, not
+        about the server, and the row says so.
+      </dd>
+      <dt>The surface was too thin</dt>
+      <dd>
+        The panel shows how many candidate tasks were generated, how many were admitted, the admission rate
+        against its floor, and the suite size against the minimum of 8. Three fates are counted apart,
+        because summing them would inflate the failure count: candidates rejected by admission, listed with
+        the rule that rejected each one; candidates that passed admission and were trimmed as surplus, since
+        the generator deliberately asks for more than it drives; and candidates deleted by the null screen
+        below. Rows produced by the older generator, which did not serialise its per candidate reasons,
+        carry that gap as a stated limitation instead of a breakdown.
+      </dd>
+      <dd>
+        <strong>Neither floor moves.</strong> A thin surface is fixed by generating tasks that survive
+        admission. No threshold, ratio, floor or alpha on this page has ever been loosened to turn a refusal
+        into a score, and none will be.
+      </dd>
+      <dt>The construct gate failed</dt>
+      <dd>
+        A reference agent that has been handed the answer key must still reach it through the server. When
+        it cannot, the panel prints its counts and then reads the tape: how many tool calls were recorded,
+        how many came back as errors, and how many never received a matching protocol response at all. A
+        server that advertises tools and then rejects every invocation before a response exists produces
+        requests with no responses, and that is a finding about the server rather than about the agent. It
+        is stated from the recorded counts, never assumed.
+      </dd>
+    </dl>
+
+    <h3>The generation time null screen, and the bias it introduces</h3>
+    <p>
+      Newer runs screen every candidate task before admission: the runner model is asked to answer it with
+      no tools and no server, and a candidate it answers correctly is deleted before the suite is hashed and
+      before any gate runs. The count deleted is published on each row, and the deleted candidates are never
+      counted as generator failures because nothing was wrong with them.
+    </p>
+    <p>
+      This is a bias and it points in one direction, so it is stated rather than buried: the run time null
+      baseline on a screened suite measures the noise floor of a suite that was already purged of the tasks
+      that gate looks for, which means it reads lower than it would on an unscreened suite. Nothing about
+      the gate changed. Its 0.5 ratio, its 95th percentile and its halt behaviour are unchanged, the screen
+      never removes a task from a gate denominator, and a screened suite can still be killed by the
+      baseline. What it does mean is that a passed baseline on a screened row and a passed baseline on an
+      unscreened row are not the same evidence, so each row prints which it is, and rows are never ranked
+      across generator versions.
+    </p>
+    <p>
+      A suite the screen empties is its own finding rather than a thin surface. It refuses as DEGENERATE
+      with the reason <code>all_candidates_null_answerable</code> and the screen ledger behind it, because
+      "we generated enough tasks and a model answered them all with no server at all" is a statement about
+      what the server adds, not about how many tools it has.
     </p>
 
     <h3>Two documented divergences from evalgate</h3>
@@ -194,7 +274,8 @@
 <footer class="wrap site-foot">
   <p>
     Data source: <a href="data/runs.json">data/runs.json</a>. Tapes live under <code>/traces/</code> on this
-    same origin. Sample data ships with the repository so the page can be read before any real run exists.
+    same origin. Every row is a real run against a public server, published with the recording it was read
+    from, including the runs that produced no number.
   </p>
 </footer>
 

@@ -17,6 +17,27 @@
  * evidence for every finding (DESIGN 4-7), and causal rewrite diffs (DESIGN 18).
  * Cite MCPEval in METHODS copy, not just here.
  *
+ * GENERATOR v2 (2026-08-19). v1's first real leaderboard pass produced zero
+ * scored rows: seven servers refused DEGENERATE because the no-tools null model
+ * passed 70 of 76 generated tasks, and five refused INSUFFICIENT_SURFACE because
+ * admission discarded 7 to 10 of 12 of our own candidates. Both root causes are
+ * generator defects, so v2 changes the GENERATOR and never a gate:
+ *   - the system prompt bans the two families the null model actually beat us on
+ *     (closed-vocabulary API names, stable encyclopedia facts) and requires every
+ *     task to declare `serverRequiredBecause`;
+ *   - the check policy rejects predicates a no-tools model satisfies by
+ *     construction (bare quantified classes, one-word substrings, `tool_called`
+ *     as the whole check, a literal the prompt already supplies);
+ *   - a generation-time NULL SCREEN asks a cold, tool-less model every candidate
+ *     and DELETES the ones it answers correctly (`null_screen`);
+ *   - the parser bugs that silently manufactured drops are fixed (`bindParams`
+ *     reads the wire shape of `params`; repairs match positionally when an id
+ *     comes back blank; discarded payload entries are counted);
+ *   - accounting is exact: `candidates === admitted + dropped + trimmed`, and the
+ *     whole ledger is returned for serialization to `suite-meta.json`.
+ * Nothing here touches src/gates. Every change makes TASKS HARDER or accounting
+ * TRUER; no threshold, ratio, floor or alpha moves.
+ *
  * What this module enforces locally, before any gate runs:
  *   - answer-leak: the rendered prompt may never contain the answer key. Offenders
  *     get exactly ONE regeneration attempt and are then DROPPED (DESIGN 11, FREE
@@ -34,14 +55,22 @@
  *     on the LOCAL result wrapper so the pipeline can refuse with
  *     INSUFFICIENT_SURFACE.
  *
- * The Anthropic client is INJECTED. Nothing here constructs one, reads an API key,
- * or touches the network on import, so the unit tests run with a canned stub.
+ * The Anthropic client is INJECTED, and so is the separate null-screen client.
+ * Nothing here constructs one, reads an API key, or touches the network on
+ * import, so the unit tests run with canned stubs. Omit the screen client and
+ * the screen does not run at all: the module's offline property is preserved by
+ * construction, not by convention.
  */
 
 import { createHash } from 'node:crypto';
 
 import type Anthropic from '@anthropic-ai/sdk';
 
+// The null screen decides with the SAME predicate evaluator the run uses, so a
+// candidate the screen keeps and the gate then kills can never be explained by
+// two divergent notions of "passing". `evaluateCheck` is pure: no network, no
+// client, no key, so the module keeps its stubbable, offline-testable property.
+import { evaluateCheck } from '../run/agent.js';
 import { declaredDestructive } from '../score/metrics.js';
 import type { FitnessTask, TaskCheck, TaskSuite } from '../types.js';
 
@@ -63,16 +92,86 @@ export const DEFAULT_TARGET_TASK_COUNT = 12;
  * It is part of the generator config, so a synthesizer change is a NEW suite
  * (new suiteHash) and therefore a new run, never a retry of an old one.
  */
-export const SYNTHESIZER_VERSION = 1;
+export const SYNTHESIZER_VERSION = 2;
 
 /**
- * Shortest answer-key token the leak check will look for. Below this, matches are
+ * The generator identity that goes into the suite hash preimage. A v1 artifact
+ * and a v2 artifact can never collide, and the leaderboard must never put a v1
+ * row and a v2 row in the same column.
+ */
+export const GENERATOR_VERSION = `fitness-report-generator/${String(SYNTHESIZER_VERSION)}`;
+
+/** Bumped when the admission check policy changes. Hashed. */
+export const CHECK_POLICY_VERSION = 2;
+
+/** Bumped when the answer-leak normalization changes. Hashed. */
+export const LEAK_CHECK_MODE = 'squashed+word-boundary/2';
+
+/**
+ * v2 over-generates: the null screen deletes roughly half the candidates on a
+ * public-docs surface, so asking for exactly the target guarantees a refusal.
+ * Ask for `max(target * factor, floor)`.
+ */
+export const DEFAULT_OVER_GENERATION_FACTOR = 2;
+export const MIN_OVER_GENERATION = 16;
+
+/**
+ * Shortest answer-key token the leak check will look for, measured on the
+ * SQUASHED form (letters and digits only). Below this, matches are
  * overwhelmingly coincidental ("id", "3") and every task in the suite would be
  * dropped. Same floor as the reference check in src/gates/fixtures.ts.
  */
 export const MIN_LEAK_TOKEN_LENGTH = 3;
 
+/**
+ * A key shorter than this (squashed) is matched only on a WORD BOUNDARY, never
+ * by squashed containment: "307" and "63" appear inside unrelated numbers on
+ * every documentation surface, and a false leak drop is a task lost for nothing.
+ */
+export const SHORT_KEY_BOUNDARY_LENGTH = 6;
+
+/**
+ * Server `instructions` and tool descriptions are PROSE and collide by accident
+ * far more often than a prompt does, so the context corpus carries a longer
+ * floor than the prompt does.
+ */
+export const MIN_CONTEXT_LEAK_TOKEN_LENGTH = 6;
+
+/** A `substring` check shorter than this is satisfiable by chance. */
+export const MIN_SUBSTRING_CHECK_LENGTH = 4;
+
+/**
+ * A regex whose longest literal run is shorter than this is a SHAPE, not an
+ * answer: `[0-9]{3,}`, `\d+`, `.*` and `\[[a-zA-Z]+\]` are all passed by text a
+ * no-tools model writes without knowing anything.
+ */
+export const MIN_REGEX_LITERAL_RUN = 3;
+
+/** At most one judge rubric per suite (v2 check policy). */
+export const MAX_JUDGE_CHECKS_PER_SUITE = 1;
+
 const DEFAULT_MAX_TOKENS = 16000;
+
+/** The cold probe is one short answer. It never needs a long generation. */
+export const DEFAULT_SCREEN_MAX_TOKENS = 400;
+
+/** How many cold probes are in flight at once. */
+export const DEFAULT_SCREEN_CONCURRENCY = 4;
+
+/** Longest excerpt of a cold answer kept as evidence in the ledger. */
+export const SCREEN_EXCERPT_CHARS = 400;
+
+/**
+ * The cold probe's system prompt. Deliberately STRICTER than the run-time
+ * no-tools null model: that one was free to hedge ("I cannot check, but from
+ * prior knowledge...") and still satisfied four measured checks. This one is
+ * told to commit or to say UNKNOWN, and it is given no server instructions,
+ * because instructions are themselves a measured leak channel.
+ */
+export const NULL_SCREEN_SYSTEM_PROMPT =
+  'You have no tools available. Answer the user from your own knowledge. Be direct and state ' +
+  'your best answer. Do not ask for tools and do not refuse. If you genuinely do not know, ' +
+  'reply with exactly UNKNOWN.';
 
 // ---------------------------------------------------------------------------
 // Tool surface (local shape; structurally accepts MCP `Tool` and FixtureTool)
@@ -116,6 +215,71 @@ export type JudgeClient = {
   };
 };
 
+/**
+ * The narrowing seam for the NULL SCREEN. Structurally identical to
+ * `JudgeClient`, and deliberately a separate field on the options: the screen
+ * must run on the RUNNER model (the model the null_baseline gate will use), not
+ * on the judge, or it lets through exactly the candidates the gate then kills.
+ * Absent => no screen runs and the module keeps its no-network property.
+ */
+export type ScreenClient = JudgeClient;
+
+/**
+ * Grades a `judge` rubric against one answer. Structurally identical to
+ * `JudgeCheck` in src/run/agent.ts, so the pipeline hands the run-time judge
+ * straight in and the screen decides judge candidates the same way the run will.
+ */
+export type ScreenJudge = (
+  rubric: string,
+  finalText: string,
+  task: FitnessTask,
+) => Promise<boolean | null>;
+
+/** Null-screen configuration. `client` absent => the screen is off. */
+export interface NullScreenOptions {
+  client?: ScreenClient;
+  /** Runner model id. Hashed into the suite: a re-screen is a new suite. */
+  model: string;
+  maxTokens?: number;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** Probes in flight at once. Default 4. */
+  concurrency?: number;
+  /** Drop candidates the cold model answered correctly. Default true. */
+  dropOnCold?: boolean;
+  /** Grades `judge` candidates. Absent => judge candidates are not screenable. */
+  judge?: ScreenJudge;
+}
+
+/** One cold probe, kept whether the candidate survived it or not. */
+export interface NullScreenRecord {
+  taskId: string;
+  checkKind: TaskCheck['kind'];
+  /** False when the check cannot be satisfied without tool calls by construction. */
+  screenable: boolean;
+  /** True = the cold model answered correctly. null = not screenable, or errored. */
+  coldPassed: boolean | null;
+  /** First 400 chars of what the cold model said. Our own text, safe to publish. */
+  coldAnswerExcerpt?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Present when the probe itself failed. The candidate is KEPT in that case. */
+  error?: string;
+}
+
+export interface NullScreenResult {
+  enabled: boolean;
+  model: string | null;
+  /** Candidates that got a real cold probe. */
+  screened: number;
+  /** Candidates deleted because the cold model answered them correctly. */
+  dropped: number;
+  /** Probes that threw. Those candidates are kept, never silently deleted. */
+  errors: number;
+  inputTokens: number;
+  outputTokens: number;
+  records: readonly NullScreenRecord[];
+}
+
 // ---------------------------------------------------------------------------
 // Options and result
 // ---------------------------------------------------------------------------
@@ -141,7 +305,28 @@ export interface SynthesizeOptions {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** `max_tokens` for the judge call. Default 16000. */
   maxTokens?: number;
+  /**
+   * v2: ask the judge for `max(target * factor, MIN_OVER_GENERATION)` candidates
+   * because the null screen deletes a large fraction of them. Default 2.
+   */
+  overGenerationFactor?: number;
+  /** v2 null screen (DESIGN 11 FREE-tier discipline, run at generation time). */
+  nullScreen?: NullScreenOptions;
 }
+
+/**
+ * v2: every task must name the reason the SERVER is required to answer it. A
+ * task that cannot name one is a task about the model, not about the server.
+ */
+export const SERVER_REQUIREMENTS = [
+  'volatile',
+  'long-tail',
+  'server-minted',
+  'verbatim-quote',
+  'cross-reference',
+] as const;
+
+export type ServerRequirement = (typeof SERVER_REQUIREMENTS)[number];
 
 export type DropReason =
   | 'malformed'
@@ -151,18 +336,44 @@ export type DropReason =
   | 'invalid-check'
   | 'unchained-handle'
   | 'destructive-excluded'
-  | 'answer-leak';
+  | 'answer-leak'
+  /** v2: the answer key is in the server instructions or a tool description. */
+  | 'context-answer-leak'
+  /** v2: the check is satisfiable without knowing the answer. */
+  | 'check-too-permissive'
+  /** v2: the check literal is already in the rendered prompt. */
+  | 'check-matches-prompt'
+  /** v2: no valid `serverRequiredBecause`. */
+  | 'no-server-requirement'
+  /** v2: a cold, tool-less model answered it correctly. */
+  | 'null_screen';
 
 export interface DroppedTask {
   id: string;
   reason: DropReason;
   detail: string;
+  /**
+   * Enough of the candidate to argue with the drop. `phrase`, never `token`:
+   * the publish-time redactor erases any field literally named `token`, and
+   * that would erase the evidence this record exists to carry.
+   */
+  evidence?: {
+    expectedTools?: readonly string[];
+    unknownTools?: readonly string[];
+    checkKind?: string;
+    phrase?: string;
+    promptExcerpt?: string;
+    /** What the cold, tool-less model said, when the null screen did the drop. */
+    coldAnswerExcerpt?: string;
+  };
 }
 
 export interface TaskRepair {
   id: string;
-  kind: 'handle-chain';
+  kind: 'handle-chain' | 'answer-leak-rewrite' | 'expected-tools-dedupe';
   detail: string;
+  /** Only on rewrites: how the replacement was paired with its offender. */
+  matchedBy?: 'id' | 'position';
 }
 
 /** A create-returns-handle edge on a stateful surface. */
@@ -179,8 +390,17 @@ export interface HandleChain {
 
 export interface AnswerLeak {
   taskId: string;
-  /** The answer-key token found verbatim in the rendered prompt. */
-  token: string;
+  /**
+   * The answer-key phrase found in the prompt (or in the context corpus).
+   *
+   * `phrase`, NOT `token`: src/tape/default-redact.json carries a descend
+   * -anywhere `$..token` rule, so a field named `token` is replaced with
+   * [REDACTED] in every published copy and the leak evidence disappears from
+   * exactly the artifact that exists to show it.
+   */
+  phrase: string;
+  /** Where it was found. `prompt` is the classic case. */
+  source: 'prompt' | 'params' | 'context';
 }
 
 /**
@@ -195,10 +415,33 @@ export interface SynthesisResult {
   /** True when fewer than `minTasks` tasks survived validation. */
   insufficient: boolean;
   minTasks: number;
-  /** Raw tasks the model emitted across both attempts. Feeds the admission rate. */
+  /**
+   * Raw candidates the judge emitted on the FIRST pass.
+   *
+   * v1 did `generated += rewrites.length`, which double-counted the repair pass:
+   * a rewrite REPLACES an offender, it is not a new candidate. With 12 raw and 4
+   * rewrites the reported admission rate was 0.750 where the true rate was
+   * 1.000, and that inflated denominator went straight into the structural
+   * gate's 0.25 floor. The gate's floor did not move; the denominator is now the
+   * number of candidates that were actually validated.
+   */
   generated: number;
+  /** Raw candidates the judge emitted (alias of `generated`, named for the ledger). */
+  emitted: number;
+  /** Repair replacements the judge returned. Never added to `candidates`. */
+  rewritten: number;
+  /** The candidates actually put through validation. */
+  candidates: number;
+  /** Payload entries the parser discarded because they were not objects. */
+  entriesDiscarded: number;
   /** Tasks admitted to the suite. */
   admitted: number;
+  /** Valid tasks above the target count, kept out of the suite for cost. */
+  trimmed: number;
+  /** `candidates === admitted + dropped.length + trimmed`. */
+  reconciles: boolean;
+  /** Signed shortfall when the accounting does not reconcile. 0 when it does. */
+  shortfall: number;
   dropped: readonly DroppedTask[];
   repairs: readonly TaskRepair[];
   handleChains: readonly HandleChain[];
@@ -206,6 +449,12 @@ export interface SynthesisResult {
   regenerationAttempted: boolean;
   /** Leaks found on the first pass, whether or not regeneration fixed them. */
   leaksFound: readonly AnswerLeak[];
+  /** Every cold probe, kept or dropped (v2). */
+  nullScreen: NullScreenResult;
+  /** The exact generator config hashed into `suite.suiteHash`. */
+  generator: GeneratorConfig;
+  /** The surface the suite was generated against. */
+  surface: { toolCount: number; toolNames: readonly string[] };
 }
 
 export class TaskSynthesisError extends Error {
@@ -256,6 +505,8 @@ function sha256Hex(text: string): string {
  * suite the model would produce, so a change here must change the hash.
  */
 export interface GeneratorConfig {
+  /** 'fitness-report-generator/2'. Every v2 run is a new attempt, never a retry. */
+  generatorVersion: string;
   synthesizerVersion: number;
   generatorModel: string;
   serverSlug: string;
@@ -266,6 +517,24 @@ export interface GeneratorConfig {
   toolSurfaceDigest: string;
   /** sha256 over the server `instructions` string, or null when absent. */
   instructionsDigest: string | null;
+  // --- v2 knobs. Two materially different generators must never share a hash. ---
+  /** Judge effort. Was unhashed in v1 while materially changing the output. */
+  effort: string;
+  maxTokens: number;
+  overGenerationFactor: number;
+  checkPolicyVersion: number;
+  leakCheckMode: string;
+  /**
+   * The screen policy. A suite screened against sonnet-5 is not the same suite
+   * as one screened against haiku-4.5, and an unscreened suite is neither.
+   */
+  nullScreen: {
+    enabled: boolean;
+    model: string | null;
+    maxTokens: number;
+    effort: string;
+    dropOnCold: boolean;
+  };
 }
 
 /** sha256 over canonical JSON of tasks + generator config + seed (DESIGN 17). */
@@ -338,7 +607,22 @@ const PRODUCER_VERBS = [
 
 const HANDLE_SUFFIXES = ['id', 'ids', 'handle', 'uuid', 'ref', 'key', 'token'];
 
-/** Credential-shaped params that look like handles but are not. */
+/**
+ * Params that end in a handle-shaped suffix and are NOT handles.
+ *
+ * Two families. Credential-shaped names were always here. Pagination and
+ * correlation cursors are v2 (over-breadth fix): `next_token`, `cursor` and
+ * `request_id` end in a handle suffix, so v1 classified them as handles, and on
+ * any surface carrying one cursor plus one create/add/open/start-prefixed tool
+ * the lone-producer fallback then FABRICATED a chain, after which
+ * `chainExpectedTools` either prepends a wrong producer or drops the task as
+ * `unchained-handle`. Measured live: aws-knowledge advertises
+ * `aws___get_regional_availability.next_token`; huggingface advertises
+ * `hub_repo_details.repo_ids`. DESIGN decision 6 already records the same
+ * over-broad-name mistake in the redactor ("key-name redaction destroys legit
+ * args like `page_token`"). A missed chain costs one repaired task; a fabricated
+ * chain costs a whole task plus a wrong finding.
+ */
 const HANDLE_DENYLIST = new Set([
   'api_key',
   'apikey',
@@ -347,6 +631,20 @@ const HANDLE_DENYLIST = new Set([
   'bearer_token',
   'secret_key',
   'session_token',
+  // pagination and correlation cursors (v2)
+  'next_token',
+  'page_token',
+  'continuation_token',
+  'pagination_token',
+  'cursor',
+  'next_cursor',
+  'page_cursor',
+  'request_id',
+  'trace_id',
+  'correlation_id',
+  'idempotency_key',
+  'sort_key',
+  'partition_key',
 ]);
 
 /** `record_id`, `id`, `handle`, `documentId` -> true. `api_key` -> false. */
@@ -410,7 +708,10 @@ export function detectHandleChains(tools: readonly ToolSurfaceEntry[]): HandleCh
       if (candidates.length === 0) continue;
       const byEntity =
         entity.length > 0 ? candidates.filter((p) => p.name.toLowerCase().includes(entity)) : [];
-      const chosen = byEntity.length === 1 ? byEntity[0] : candidates.length === 1 ? candidates[0] : undefined;
+      // v2 (over-breadth fix): the entity token must MATCH. v1 also accepted
+      // "there is exactly one producer on this surface", which turns any
+      // handle-suffixed param on a one-producer surface into a fabricated chain.
+      const chosen = byEntity.length === 1 ? byEntity[0] : undefined;
       if (!chosen) continue;
       chains.push({
         producer: chosen.name,
@@ -429,6 +730,45 @@ export function detectHandleChains(tools: readonly ToolSurfaceEntry[]): HandleCh
 
 function normalizeForLeak(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Letters and digits only. v1 normalized whitespace and case and nothing else,
+ * so a prompt that handed the agent `https://www.rfc-editor.org/rfc/rfc2616.txt`
+ * did not "contain" the answer key `RFC 2616` and the task was admitted. It was
+ * one of only three tasks that survived on exa. Measured over all 113 admitted
+ * tasks in the v1 sweep: whitespace-only normalization catches 0 leaks, this
+ * one catches 4.
+ */
+export function squashForLeak(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Does `haystack` contain `phrase`?
+ *
+ * Long keys match on the squashed form, which is punctuation-insensitive and
+ * therefore catches `rfc2616` inside a URL. Short keys ("307", "63", "1536" are
+ * all real answer keys in the v1 sweep) squash to digit runs that appear inside
+ * unrelated numbers, so they must match on a WORD BOUNDARY of the
+ * whitespace-normalized text instead. Tightening in the long-key direction,
+ * false-positive protection in the short-key direction.
+ */
+function containsPhrase(haystack: string, phrase: string, minSquashed: number): boolean {
+  const squashedPhrase = squashForLeak(phrase);
+  if (squashedPhrase.length < minSquashed) return false;
+  if (squashedPhrase.length >= SHORT_KEY_BOUNDARY_LENGTH) {
+    return squashForLeak(haystack).includes(squashedPhrase);
+  }
+  const normalized = normalizeForLeak(haystack);
+  const needle = normalizeForLeak(phrase);
+  if (needle.length === 0) return false;
+  const boundary = new RegExp(`(^|[^a-z0-9])${escapeRegExp(needle)}($|[^a-z0-9])`);
+  return boundary.test(normalized);
 }
 
 /**
@@ -456,7 +796,7 @@ export function leakTokens(answerKey: unknown): string[] {
     }
   };
   walk(answerKey);
-  return out.filter((t) => normalizeForLeak(t).length >= MIN_LEAK_TOKEN_LENGTH);
+  return out.filter((t) => squashForLeak(t).length >= MIN_LEAK_TOKEN_LENGTH);
 }
 
 /**
@@ -468,12 +808,59 @@ export function leakTokens(answerKey: unknown): string[] {
  * would drop sound tasks and shrink the suite below DESIGN 13's floor for no
  * validity gain.
  */
-export function findAnswerLeak(task: Pick<FitnessTask, 'prompt' | 'answerKey'>): string | null {
+export function findAnswerLeak(
+  task: Pick<FitnessTask, 'prompt' | 'answerKey'>,
+  corpus?: LeakScanCorpus,
+): string | null {
+  return scanAnswerLeak(task, corpus)?.phrase ?? null;
+}
+
+/**
+ * Extra text the answering model also sees, scanned alongside the prompt.
+ *
+ * `context` is the measured blind spot: DESIGN decision 17 injects the server's
+ * `instructions` string into the runner system prompt, and huggingface's 758
+ * -character instructions say "The Hugging Face tools are being used
+ * anonymously" while a task's answer key was `anonymous`. The no-tools null
+ * model read the answer out of its own system prompt and said so, and the
+ * answer_leak gate recorded `leaks: []` because it never looked there. Widening
+ * the corpus makes the FREE gate strictly stricter and costs zero tokens.
+ */
+export interface LeakScanCorpus {
+  /** Server instructions and tool descriptions. Prose: longer floor applies. */
+  context?: readonly string[];
+  /** Bound parameter values, scanned even when the template never renders them. */
+  params?: readonly string[];
+}
+
+/** `findAnswerLeak` with the location kept, for the drop ledger. */
+export function scanAnswerLeak(
+  task: Pick<FitnessTask, 'prompt' | 'answerKey'>,
+  corpus?: LeakScanCorpus,
+): { phrase: string; source: 'prompt' | 'params' | 'context' } | null {
   if (task.answerKey === undefined || task.answerKey === null) return null;
-  const prompt = normalizeForLeak(task.prompt);
-  if (prompt.length === 0) return null;
-  for (const token of leakTokens(task.answerKey)) {
-    if (prompt.includes(normalizeForLeak(token))) return token;
+  const phrases = leakTokens(task.answerKey);
+  if (phrases.length === 0) return null;
+
+  for (const phrase of phrases) {
+    if (task.prompt.length > 0 && containsPhrase(task.prompt, phrase, MIN_LEAK_TOKEN_LENGTH)) {
+      return { phrase, source: 'prompt' };
+    }
+  }
+  for (const value of corpus?.params ?? []) {
+    for (const phrase of phrases) {
+      if (containsPhrase(value, phrase, MIN_LEAK_TOKEN_LENGTH)) return { phrase, source: 'params' };
+    }
+  }
+  for (const text of corpus?.context ?? []) {
+    for (const phrase of phrases) {
+      // Prose collides by accident far more often than a prompt does, so a
+      // context match needs a longer key. A false drop here shrinks a suite
+      // that is already fighting for the 8-task floor.
+      if (containsPhrase(text, phrase, MIN_CONTEXT_LEAK_TOKEN_LENGTH)) {
+        return { phrase, source: 'context' };
+      }
+    }
   }
   return null;
 }
@@ -488,6 +875,86 @@ export function renderPrompt(template: string, params: Readonly<Record<string, s
     const value = params[key];
     return value === undefined ? whole : value;
   });
+}
+
+/**
+ * Placeholders the params never bound, still sitting in the rendered prompt.
+ *
+ * Nothing in v1 checked this: 0 of 113 admitted prompts happened to contain
+ * `{{`, so it never bit, and it becomes load-bearing the moment v2's param
+ * binding actually works. The structural gate verifies it, deliberately NOT
+ * admission: a gate whose property is already enforced at admission measures
+ * nothing (structural.ts's own docstring says so).
+ */
+export function unresolvedPlaceholders(prompt: string): string[] {
+  return [...prompt.matchAll(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g)].map((m) => m[1] ?? '');
+}
+
+// ---------------------------------------------------------------------------
+// Check policy (v2). Every rule here REJECTS a candidate; none admits one that
+// v1 would have rejected.
+// ---------------------------------------------------------------------------
+
+/**
+ * The longest run of literal characters a regex must match.
+ *
+ * `[0-9]{3,}` (any three digits), `\d+`, `.*` and `\[[a-zA-Z]+\]` (any bracketed
+ * word) are all SHAPES: a no-tools model satisfies them by writing plausible
+ * prose. All four score 0 to 1 here. `rate-limit-policy` scores 17 and
+ * `\b980\b` scores 3.
+ */
+export function longestLiteralRun(pattern: string): number {
+  let best = 0;
+  let run = 0;
+  const flush = (drop: number): void => {
+    const effective = Math.max(0, run - drop);
+    if (effective > best) best = effective;
+    run = 0;
+  };
+  for (let i = 0; i < pattern.length; i += 1) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      const next = pattern[i + 1];
+      if (next === undefined) {
+        flush(0);
+        break;
+      }
+      // Class escapes (\d \w \s \b ...) match a SET, not a literal.
+      if (/[dDwWsSbBnrtfvux0-9AZzGkpP]/.test(next)) flush(0);
+      else run += 1;
+      i += 1;
+      continue;
+    }
+    if (ch === '[' || ch === '(' || ch === ')' || ch === '|' || ch === '^' || ch === '$' || ch === '.') {
+      flush(0);
+      if (ch === '[') {
+        const end = pattern.indexOf(']', i + 1);
+        i = end < 0 ? pattern.length : end;
+      }
+      continue;
+    }
+    if (ch === '?' || ch === '*') {
+      // The preceding atom is optional, so it is not guaranteed literal text.
+      flush(1);
+      continue;
+    }
+    if (ch === '+') {
+      flush(0);
+      continue;
+    }
+    if (ch === '{') {
+      const end = pattern.indexOf('}', i + 1);
+      const body = end < 0 ? '' : pattern.slice(i + 1, end);
+      // `{0,n}` makes the preceding atom optional; any other quantifier still
+      // ends the literal run.
+      flush(/^0\b/.test(body) ? 1 : 0);
+      i = end < 0 ? pattern.length : end;
+      continue;
+    }
+    run += 1;
+  }
+  flush(0);
+  return best;
 }
 
 // ---------------------------------------------------------------------------
@@ -551,10 +1018,24 @@ const TASKS_JSON_SCHEMA: Record<string, unknown> = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['id', 'promptTemplate', 'params', 'expectedTools', 'check', 'answerKey', 'destructive'],
+        required: [
+          'id',
+          'promptTemplate',
+          'params',
+          'expectedTools',
+          'check',
+          'answerKey',
+          'destructive',
+          // v2: the model must NAME the reason the server is required. A task
+          // that cannot name one is a task about the model.
+          'serverRequiredBecause',
+        ],
         properties: {
           id: { type: 'string' },
           promptTemplate: { type: 'string' },
+          serverRequiredBecause: { type: 'string', enum: [...SERVER_REQUIREMENTS] },
+          /** Error-path probes are the one honest use of a `tool_called`-only check. */
+          errorPath: { type: 'boolean' },
           // The Claude structured-output API rejects `additionalProperties` carrying a
           // schema object ("Please set 'additionalProperties' to false"), so an open
           // string map is not expressible. Params travel as {name,value} pairs on the
@@ -581,26 +1062,86 @@ const TASKS_JSON_SCHEMA: Record<string, unknown> = {
   },
 };
 
-const SYSTEM_PROMPT = [
+/**
+ * GENERATOR v2 system prompt.
+ *
+ * Every banned clause names a family MEASURED in the v1 sweep, not an
+ * abstraction. Clause 1 kills coingecko's four date/year tasks; clause 2 kills
+ * all 12 astro tasks and 10 svelte tasks (the answers were `client:only`,
+ * `PUBLIC_`, `$derived.by`); clause 3 kills nine huggingface tasks (BERT's
+ * vocab_size); clause 4 kills the task whose answer key was `anonymous` while
+ * the server's own instructions said the tools are used anonymously; clause 5
+ * kills the two context7 tasks whose answer was a naming convention.
+ *
+ * A prohibition list is enforced by the same model that violated it, so this
+ * prompt only raises the prior. The NULL SCREEN is the enforcement.
+ */
+export const SYSTEM_PROMPT = [
   'You generate evaluation tasks for an MCP (Model Context Protocol) server.',
-  'A task is one job a competent agent should be able to finish using ONLY the tools listed,',
-  'and whose success can be decided by a machine with no human in the loop.',
   '',
-  'Hard rules:',
-  '1. Every task must be solvable with the advertised tools alone. Never invent a tool.',
-  '2. Every task carries a machine-checkable check. Prefer substring/regex over judge rubrics;',
-  '   use a judge rubric only when no literal string can decide the outcome.',
-  '3. The answerKey is the fact the agent must discover by CALLING tools. It must never appear,',
-  '   in whole or in part, in the rendered prompt. If the prompt already states the answer,',
-  '   a model with no tools at all passes the task and the suite is worthless.',
-  '4. Write the prompt as a template with {{placeholders}} and supply the bound params. The',
-  '   placeholders carry inputs the agent is GIVEN (a search term, a record name), never the answer.',
-  '5. On stateful surfaces, chain handles: if a tool consumes an id/handle, the task must also',
-  '   expect the tool that creates it, listed first in expectedTools.',
-  '6. Set destructive:true when a correct solution requires a tool that writes, deletes, sends or',
-  '   transfers. When a tool carries no annotations, assume it is destructive.',
-  '7. Vary difficulty: single-call lookups, multi-call chains, and at least one task that requires',
-  '   choosing between two similar tools.',
+  'The ONLY thing these tasks measure is whether an agent can get a job done WITH THIS SERVER',
+  'that it could not get done WITHOUT it. A task a competent model answers correctly from memory,',
+  'with no tools at all, measures the model and is worthless. Assume the model reading your task',
+  'is a frontier model with broad knowledge of public documentation, public APIs, famous entities',
+  'and standard library names.',
+  '',
+  'BANNED TASK SHAPES. Do not emit any of these, ever:',
+  '1. Historical constants and founding facts: genesis dates, launch years, block times, release dates.',
+  '2. Well-known API surface names: directive names, rune names, decorator names, class names, config',
+  '   keys, CLI verbs, import specifiers, documentation URL paths. If the answer is a name a working',
+  '   developer could recall, it is banned.',
+  '3. Attributes of famous entities: the contract address of a top-10 NFT collection, the vocab_size',
+  '   of BERT, the row count of a standard benchmark dataset.',
+  "4. Anything stated in the server's own instructions string, which the answering model is also given.",
+  '5. Anything whose answer is a deterministic function of the prompt: an identifier scheme such as',
+  '   /org/repo, a naming convention, a pluralisation of a word already in the prompt.',
+  '',
+  'REQUIRED TASK SHAPES. Every task must declare serverRequiredBecause, exactly one of:',
+  'volatile - the answer changes on a timescale of days or less: a current price, a current count,',
+  '  a latest version, a live rank, an open item count.',
+  'long-tail - the answer is a field of a SPECIFIC low-popularity entity that appears in the',
+  '  grounding evidence below, not one you recalled.',
+  'server-minted - the answer is an artifact this server creates (a generated URL, a session handle,',
+  '  a rendered id) and cannot exist before the call.',
+  'verbatim-quote - the answer is a contiguous span of at least 12 words copied out of a specific',
+  '  document this server returns.',
+  'cross-reference - the answer requires joining two live lookups whose join key is not memorable,',
+  '  and neither half alone is sufficient.',
+  '',
+  'GROUNDING. Build tasks out of what the tool surface and any grounding evidence below actually',
+  'show. Do not invent entity ids, file paths, repository names or record keys: an id you guessed',
+  'will 404, and a task that fails for that reason tells us nothing about the server. When you need',
+  'a long-tail entity, take one from the tail of a grounded listing, never from your own memory.',
+  '',
+  'CHECKS. The check decides success by machine. Choose in this order:',
+  '1. tool_result_matches - REQUIRED whenever the answer appears in a tool result. It is the only',
+  '   check a no-tools model cannot pass by writing prose. The pattern must be SPECIFIC to the',
+  '   correct arguments: a pattern that any result of that tool would contain is invalid, because a',
+  '   caller passing nonsense arguments would also match it.',
+  '2. tool_called - only as a secondary constraint, never as the whole check.',
+  '3. regex or substring on final_text - only when the answer cannot be located in a tool result.',
+  '   The literal must be at least 4 characters, must contain a literal run of at least 3',
+  '   characters, and must not appear anywhere in the rendered prompt.',
+  '4. judge - last resort, at most 1 per suite.',
+  "A check that a model could satisfy while explicitly saying 'I cannot verify this' is a broken",
+  'check. Prefer checks a hedge cannot satisfy.',
+  '',
+  'ANSWER KEYS. The answerKey is the fact the agent must discover by CALLING tools. It must never',
+  'appear, in whole or in part, in the rendered prompt, in the tool descriptions, or in the server',
+  'instructions.',
+  '',
+  'UNCHANGED RULES. Every task must be solvable with the advertised tools alone; never invent a',
+  'tool. Write the prompt as a template with {{placeholders}} and supply the bound params;',
+  'placeholders carry inputs the agent is GIVEN, never the answer. On stateful surfaces, chain',
+  'handles: if a tool consumes an id or handle, the task must also expect the tool that creates it,',
+  'listed first in expectedTools. Set destructive:true when a correct solution requires a tool that',
+  'writes, deletes, sends or transfers; when a tool carries no annotations, assume it is destructive.',
+  'Vary difficulty: single-call lookups, multi-call chains, and at least one task that requires',
+  'choosing between two similar tools.',
+  '',
+  'Generate 2x the requested count. A separate screening step runs every candidate past a model with',
+  'no tools and deletes every candidate it answers correctly, so over-generate and expect roughly',
+  'half to be deleted.',
   '',
   'Return JSON only. No prose, no code fences.',
 ].join('\n');
@@ -617,6 +1158,11 @@ function toolSurfaceForPrompt(
     annotations: t.annotations ?? null,
     destructiveUnderSpecDefault: toolIsDestructive(t.name, index),
   }));
+}
+
+/** v2: ask for `max(target * factor, MIN_OVER_GENERATION)` candidates. */
+export function overGeneratedTarget(target: number, factor: number): number {
+  return Math.max(Math.ceil(target * factor), MIN_OVER_GENERATION);
 }
 
 export function buildGenerationPrompt(
@@ -655,12 +1201,13 @@ export function buildGenerationPrompt(
     'Respond with {"tasks": [...]} where each task has: id (slug, unique), promptTemplate,',
     'params (array of {name, value} string pairs bound into the template), expectedTools',
     '(array of tool names), check, answerKey (short string the agent must discover),',
-    'destructive (boolean).',
+    'destructive (boolean), serverRequiredBecause (one of: ' + SERVER_REQUIREMENTS.join(', ') + '),',
+    'and errorPath (boolean, true only when the task deliberately probes an error path).',
   );
   return parts.join('\n');
 }
 
-function buildRepairPrompt(offenders: readonly { task: RawTask; token: string }[]): string {
+function buildRepairPrompt(offenders: readonly { task: RawTask; phrase: string }[]): string {
   return [
     'These tasks leak their answer key into the rendered prompt. A no-tools baseline would pass them,',
     'so they are invalid as written.',
@@ -673,7 +1220,9 @@ function buildRepairPrompt(offenders: readonly { task: RawTask; token: string }[
     JSON.stringify(
       offenders.map((o) => ({
         id: o.task.id,
-        leakedToken: o.token,
+        // `leakedPhrase`, never `leakedToken`: this string is quoted back into a
+        // prompt we may publish, and the redactor erases `token`-named fields.
+        leakedPhrase: o.phrase,
         answerKey: o.task.answerKey,
         promptTemplate: o.task.promptTemplate,
         params: o.task.params,
@@ -692,11 +1241,53 @@ interface RawTask {
   id: string;
   promptTemplate?: string;
   prompt?: string;
-  params?: Record<string, string>;
+  /**
+   * Wire shape is an ARRAY of {name, value} (the structured-output schema cannot
+   * express an open string map). The legacy record shape is still accepted.
+   */
+  params?: unknown;
   expectedTools?: unknown;
   check?: unknown;
   answerKey?: unknown;
   destructive?: unknown;
+  serverRequiredBecause?: unknown;
+  errorPath?: unknown;
+}
+
+/**
+ * The ONE param binder.
+ *
+ * PROVEN v1 BUG: the pre-repair leak scan called a `normalizeParams` that did
+ * `Object.entries(params)` and kept only string/number/boolean values, while
+ * `params` on the wire is an array of {name, value} OBJECTS. Every value failed
+ * the typeof guard, so the scan rendered the template with NO bindings, saw no
+ * leak, and skipped the one regeneration attempt DESIGN 11 guarantees. The
+ * post-validation check then dropped the same task with reason `answer-leak`,
+ * with zero repair attempts. All 15 sweep runs show `leaksFoundAtGeneration: []`
+ * and `regenerationAttempted: false` over 180 candidates: the exact signature.
+ * Both call sites now use this function, so they can never disagree again.
+ */
+export function bindParams(params: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  const put = (name: unknown, value: unknown): void => {
+    if (typeof name !== 'string' || name.length === 0) return;
+    if (typeof value === 'string') out[name] = value;
+    else if (typeof value === 'number' && Number.isFinite(value)) out[name] = String(value);
+    else if (typeof value === 'boolean') out[name] = String(value);
+  };
+  if (Array.isArray(params)) {
+    for (const entry of params as readonly unknown[]) {
+      if (entry && typeof entry === 'object') {
+        const { name, value } = entry as { name?: unknown; value?: unknown };
+        put(name, value);
+      }
+    }
+    return out;
+  }
+  if (params && typeof params === 'object') {
+    for (const [k, v] of Object.entries(params as Record<string, unknown>)) put(k, v);
+  }
+  return out;
 }
 
 function textOf(message: Anthropic.Message): string {
@@ -707,8 +1298,18 @@ function textOf(message: Anthropic.Message): string {
   return chunks.join('\n').trim();
 }
 
+export interface ParsedTaskPayload {
+  tasks: RawTask[];
+  /**
+   * Array entries that were not objects and were discarded. v1 dropped them
+   * BEFORE `generated` was taken, so a malformed entry vanished from both the
+   * numerator and the denominator: an unrecorded loss.
+   */
+  entriesDiscarded: number;
+}
+
 /** Tolerant JSON extraction: bare JSON, fenced JSON, or JSON with prose around it. */
-export function parseTaskPayload(text: string): RawTask[] {
+export function parseTaskPayload(text: string): ParsedTaskPayload {
   const trimmed = text.trim();
   if (trimmed.length === 0) throw new TaskSynthesisError('empty', 'judge returned no text');
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(trimmed);
@@ -732,7 +1333,8 @@ export function parseTaskPayload(text: string): RawTask[] {
         ? (parsed as { tasks?: unknown }).tasks
         : undefined;
     if (!Array.isArray(list)) continue;
-    return list.filter((t): t is RawTask => !!t && typeof t === 'object') as RawTask[];
+    const tasks = list.filter((t): t is RawTask => !!t && typeof t === 'object') as RawTask[];
+    return { tasks, entriesDiscarded: list.length - tasks.length };
   }
   throw new TaskSynthesisError('unparseable', 'judge response contained no task JSON');
 }
@@ -741,7 +1343,7 @@ async function askJudge(
   client: JudgeClient,
   opts: SynthesizeOptions,
   userPrompt: string,
-): Promise<RawTask[]> {
+): Promise<ParsedTaskPayload> {
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: opts.generatorModel ?? DEFAULT_JUDGE_MODEL,
     max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
@@ -767,43 +1369,143 @@ async function askJudge(
 // Validation
 // ---------------------------------------------------------------------------
 
-function validateCheck(raw: unknown, surface: ReadonlySet<string>): TaskCheck | null {
-  if (!raw || typeof raw !== 'object') return null;
+/** A check either survives the policy or names the rule that rejected it. */
+type CheckVerdict =
+  | { ok: true; check: TaskCheck }
+  | { ok: false; reason: DropReason; detail: string };
+
+interface CheckPolicyContext {
+  surface: ReadonlySet<string>;
+  /** The RENDERED prompt: a check the prompt already satisfies is not a check. */
+  prompt: string;
+  /** True when the task declares itself an error-path probe. */
+  errorPath: boolean;
+  /** Judge rubrics already admitted to this suite. */
+  judgeCount: number;
+}
+
+/**
+ * v2 check policy. Every branch here is a TIGHTENING of v1; nothing that v1
+ * rejected is accepted now.
+ *
+ * The two structural rules (`where === 'final_text'`, `surface.has(tool)`) are
+ * unchanged and stay validity-protecting. The new rules all answer one
+ * question: can a model with no server satisfy this predicate by construction?
+ *   - `[0-9]{3,}` was admitted on convex and is satisfied by any three digits.
+ *   - `\[[a-zA-Z]+\]` was admitted on context7 and is satisfied by any bracketed
+ *     word.
+ *   - `/colinhacks/zod|/zod|zod` was admitted on context7 and its third branch
+ *     is satisfied by echoing a token the prompt itself supplied.
+ *   - two deepwiki tasks were `tool_called`-only, which the stubbed-empty and
+ *     random-valid-args null models pass without answering anything.
+ */
+function validateCheck(raw: unknown, ctx: CheckPolicyContext): CheckVerdict {
+  if (!raw || typeof raw !== 'object') {
+    return { ok: false, reason: 'invalid-check', detail: 'no machine-checkable success predicate' };
+  }
   const c = raw as Record<string, unknown>;
   switch (c.kind) {
-    case 'substring':
-      return c.where === 'final_text' && typeof c.value === 'string' && c.value.length > 0
-        ? { kind: 'substring', where: 'final_text', value: c.value }
-        : null;
+    case 'substring': {
+      if (c.where !== 'final_text' || typeof c.value !== 'string' || c.value.length === 0) {
+        return { ok: false, reason: 'invalid-check', detail: 'substring check has no final_text value' };
+      }
+      if (c.value.trim().length < MIN_SUBSTRING_CHECK_LENGTH) {
+        return {
+          ok: false,
+          reason: 'check-too-permissive',
+          detail: `substring check ${JSON.stringify(c.value)} is under ${String(MIN_SUBSTRING_CHECK_LENGTH)} characters`,
+        };
+      }
+      if (containsPhrase(ctx.prompt, c.value, 1)) {
+        return {
+          ok: false,
+          reason: 'check-matches-prompt',
+          detail: `the rendered prompt already contains the check literal ${JSON.stringify(c.value)}`,
+        };
+      }
+      return { ok: true, check: { kind: 'substring', where: 'final_text', value: c.value } };
+    }
     case 'regex': {
-      if (c.where !== 'final_text' || typeof c.pattern !== 'string' || c.pattern.length === 0) return null;
-      try {
-        new RegExp(c.pattern);
-      } catch {
-        return null;
+      if (c.where !== 'final_text' || typeof c.pattern !== 'string' || c.pattern.length === 0) {
+        return { ok: false, reason: 'invalid-check', detail: 'regex check has no final_text pattern' };
       }
-      return { kind: 'regex', where: 'final_text', pattern: c.pattern };
+      let re: RegExp;
+      try {
+        re = new RegExp(c.pattern, 'i');
+      } catch {
+        return { ok: false, reason: 'invalid-check', detail: 'regex does not compile' };
+      }
+      const run = longestLiteralRun(c.pattern);
+      if (run < MIN_REGEX_LITERAL_RUN) {
+        return {
+          ok: false,
+          reason: 'check-too-permissive',
+          detail: `regex ${JSON.stringify(c.pattern)} has a longest literal run of ${String(run)}, so it matches a shape rather than an answer`,
+        };
+      }
+      // Alternation is covered for free: a compiled pattern matches the prompt
+      // when ANY of its branches does.
+      if (ctx.prompt.length > 0 && re.test(ctx.prompt)) {
+        return {
+          ok: false,
+          reason: 'check-matches-prompt',
+          detail: `regex ${JSON.stringify(c.pattern)} is satisfied by the rendered prompt itself`,
+        };
+      }
+      return { ok: true, check: { kind: 'regex', where: 'final_text', pattern: c.pattern } };
     }
-    case 'tool_called':
-      return typeof c.tool === 'string' && surface.has(c.tool)
-        ? { kind: 'tool_called', tool: c.tool }
-        : null;
+    case 'tool_called': {
+      if (typeof c.tool !== 'string' || !ctx.surface.has(c.tool)) {
+        return { ok: false, reason: 'invalid-check', detail: 'tool_called names a tool that is not on the surface' };
+      }
+      if (!ctx.errorPath) {
+        return {
+          ok: false,
+          reason: 'check-too-permissive',
+          detail:
+            'tool_called is the whole check, which measures nothing about the answer and is passed by the ' +
+            'stubbed-empty and random-valid-args null models. Allowed only on a declared error-path probe.',
+        };
+      }
+      return { ok: true, check: { kind: 'tool_called', tool: c.tool } };
+    }
     case 'tool_result_matches': {
-      if (typeof c.tool !== 'string' || !surface.has(c.tool)) return null;
-      if (typeof c.pattern !== 'string' || c.pattern.length === 0) return null;
+      if (typeof c.tool !== 'string' || !ctx.surface.has(c.tool)) {
+        return { ok: false, reason: 'invalid-check', detail: 'tool_result_matches names a tool that is not on the surface' };
+      }
+      if (typeof c.pattern !== 'string' || c.pattern.length === 0) {
+        return { ok: false, reason: 'invalid-check', detail: 'tool_result_matches has no pattern' };
+      }
       try {
         new RegExp(c.pattern);
       } catch {
-        return null;
+        return { ok: false, reason: 'invalid-check', detail: 'regex does not compile' };
       }
-      return { kind: 'tool_result_matches', tool: c.tool, pattern: c.pattern };
+      const run = longestLiteralRun(c.pattern);
+      if (run < MIN_REGEX_LITERAL_RUN) {
+        return {
+          ok: false,
+          reason: 'check-too-permissive',
+          detail: `tool_result_matches pattern ${JSON.stringify(c.pattern)} has a longest literal run of ${String(run)}, so any result of that tool would satisfy it`,
+        };
+      }
+      return { ok: true, check: { kind: 'tool_result_matches', tool: c.tool, pattern: c.pattern } };
     }
-    case 'judge':
-      return typeof c.rubric === 'string' && c.rubric.trim().length > 0
-        ? { kind: 'judge', rubric: c.rubric }
-        : null;
+    case 'judge': {
+      if (typeof c.rubric !== 'string' || c.rubric.trim().length === 0) {
+        return { ok: false, reason: 'invalid-check', detail: 'judge check has no rubric' };
+      }
+      if (ctx.judgeCount >= MAX_JUDGE_CHECKS_PER_SUITE) {
+        return {
+          ok: false,
+          reason: 'check-too-permissive',
+          detail: `judge rubrics are capped at ${String(MAX_JUDGE_CHECKS_PER_SUITE)} per suite; this suite already has one`,
+        };
+      }
+      return { ok: true, check: { kind: 'judge', rubric: c.rubric } };
+    }
     default:
-      return null;
+      return { ok: false, reason: 'invalid-check', detail: 'no machine-checkable success predicate' };
   }
 }
 
@@ -821,6 +1523,10 @@ interface ValidationContext {
   seen: Set<string>;
   dropped: DroppedTask[];
   repairs: TaskRepair[];
+  /** Prose the answering model also reads: instructions + tool descriptions. */
+  contextCorpus: readonly string[];
+  /** Judge rubrics admitted so far, for the one-per-suite cap. */
+  judgeCount: number;
 }
 
 /**
@@ -865,6 +1571,7 @@ function chainExpectedTools(
 
 function validateTask(raw: RawTask, position: number, ctx: ValidationContext): FitnessTask | null {
   const id = slugId(raw.id, position);
+  const excerpt = (text: string): string => text.slice(0, 200);
   if (ctx.seen.has(id)) {
     ctx.dropped.push({ id, reason: 'duplicate-id', detail: 'a task with this id was already admitted' });
     return null;
@@ -875,34 +1582,27 @@ function validateTask(raw: RawTask, position: number, ctx: ValidationContext): F
     : typeof raw.prompt === 'string'
       ? raw.prompt
       : '';
-  const params: Record<string, string> = {};
-  if (Array.isArray(raw.params)) {
-    // Wire shape from the structured-output schema: [{name, value}, ...].
-    for (const entry of raw.params as readonly unknown[]) {
-      if (entry && typeof entry === 'object') {
-        const { name, value } = entry as { name?: unknown; value?: unknown };
-        if (typeof name === 'string' && name.length > 0) {
-          if (typeof value === 'string') params[name] = value;
-          else if (typeof value === 'number' || typeof value === 'boolean') params[name] = String(value);
-        }
-      }
-    }
-  } else if (raw.params && typeof raw.params === 'object') {
-    // Legacy/stub shape: an open string map.
-    for (const [k, v] of Object.entries(raw.params as Record<string, unknown>)) {
-      if (typeof v === 'string') params[k] = v;
-      else if (typeof v === 'number' || typeof v === 'boolean') params[k] = String(v);
-    }
-  }
+  const params = bindParams(raw.params);
   const prompt = renderPrompt(template, params).trim();
   if (prompt.length === 0) {
     ctx.dropped.push({ id, reason: 'malformed', detail: 'empty rendered prompt' });
     return null;
   }
 
-  const expectedRaw = Array.isArray(raw.expectedTools)
+  const expectedListed = Array.isArray(raw.expectedTools)
     ? raw.expectedTools.filter((t): t is string => typeof t === 'string')
     : [];
+  // A repeated tool name is sloppiness, not invalidity: normalize it here and
+  // record the repair. Refusing a whole server row over a duplicated string
+  // would be a false refusal, and a false refusal is worse than no row.
+  const expectedRaw = [...new Set(expectedListed)];
+  if (expectedRaw.length !== expectedListed.length) {
+    ctx.repairs.push({
+      id,
+      kind: 'expected-tools-dedupe',
+      detail: `removed ${String(expectedListed.length - expectedRaw.length)} duplicate expectedTools entries`,
+    });
+  }
   if (expectedRaw.length === 0) {
     ctx.dropped.push({ id, reason: 'no-expected-tools', detail: 'task expects no tool call at all' });
     return null;
@@ -913,15 +1613,82 @@ function validateTask(raw: RawTask, position: number, ctx: ValidationContext): F
       id,
       reason: 'unknown-tool',
       detail: `not on the advertised surface: ${unknown.join(', ')}`,
+      evidence: { expectedTools: expectedRaw, unknownTools: unknown, promptExcerpt: excerpt(prompt) },
     });
     return null;
   }
 
-  const check = validateCheck(raw.check, ctx.surface);
-  if (!check) {
-    ctx.dropped.push({ id, reason: 'invalid-check', detail: 'no machine-checkable success predicate' });
+  // v2: the model must name the reason the SERVER is needed. This is a
+  // declaration, not a proof (the null screen is the proof), but a candidate
+  // that cannot even claim one is a task about the model.
+  const requirement = raw.serverRequiredBecause;
+  if (typeof requirement !== 'string' || !(SERVER_REQUIREMENTS as readonly string[]).includes(requirement)) {
+    ctx.dropped.push({
+      id,
+      reason: 'no-server-requirement',
+      detail: `serverRequiredBecause must be one of ${SERVER_REQUIREMENTS.join(', ')}; got ${JSON.stringify(requirement)}`,
+      evidence: { promptExcerpt: excerpt(prompt) },
+    });
     return null;
   }
+
+  // The leak check runs BEFORE the check policy on purpose. A prompt that
+  // states its own answer usually also carries a check literal the prompt
+  // satisfies, and `answer-leak` is the root defect while `check-matches-prompt`
+  // is only its symptom. The ledger must name the defect, not the symptom.
+  //
+  // The corpus is wider than v1's: bound param VALUES (scanned even when the
+  // template never renders them) and the prose the answering model also reads,
+  // which is the server `instructions` string DESIGN 17 injects plus every tool
+  // description.
+  const leak = scanAnswerLeak(
+    { prompt, ...(raw.answerKey === undefined || raw.answerKey === null ? {} : { answerKey: raw.answerKey }) },
+    { context: ctx.contextCorpus, params: Object.values(params) },
+  );
+  if (leak !== null) {
+    ctx.dropped.push(
+      leak.source === 'prompt'
+        ? {
+            id,
+            reason: 'answer-leak',
+            detail: `answer key phrase ${JSON.stringify(leak.phrase)} appears in the rendered prompt`,
+            evidence: { phrase: leak.phrase, promptExcerpt: excerpt(prompt) },
+          }
+        : {
+            id,
+            reason: 'context-answer-leak',
+            detail:
+              leak.source === 'context'
+                ? `answer key phrase ${JSON.stringify(leak.phrase)} appears in the server instructions or a tool description, which the answering model is also given`
+                : `answer key phrase ${JSON.stringify(leak.phrase)} is a bound input parameter, so the task hands the agent its own answer`,
+            evidence: { phrase: leak.phrase, promptExcerpt: excerpt(prompt) },
+          },
+    );
+    return null;
+  }
+
+  const verdict = validateCheck(raw.check, {
+    surface: ctx.surface,
+    prompt,
+    errorPath: raw.errorPath === true,
+    judgeCount: ctx.judgeCount,
+  });
+  if (!verdict.ok) {
+    ctx.dropped.push({
+      id,
+      reason: verdict.reason,
+      detail: verdict.detail,
+      evidence: {
+        checkKind: typeof (raw.check as { kind?: unknown } | undefined)?.kind === 'string'
+          ? String((raw.check as { kind?: unknown }).kind)
+          : 'none',
+        promptExcerpt: excerpt(prompt),
+      },
+    });
+    return null;
+  }
+  const check = verdict.check;
+  if (check.kind === 'judge') ctx.judgeCount += 1;
 
   const expected = chainExpectedTools(id, expectedRaw, ctx);
   if (!expected) return null;
@@ -951,6 +1718,151 @@ function validateTask(raw: RawTask, position: number, ctx: ValidationContext): F
 }
 
 // ---------------------------------------------------------------------------
+// Null screen (v2): the empirical half of null-hard generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Is this check even screenable by a tool-less probe?
+ *
+ * `tool_called` and `tool_result_matches` resolve against `ctx.calls`, which is
+ * EMPTY for a model with no tools, so they are structurally unpassable and a
+ * cold probe would only ever produce a false negative. They are kept, unscreened
+ * and marked `screenable: false`, rather than silently counted as "survived".
+ */
+function screenableKind(check: TaskCheck, hasJudge: boolean): boolean {
+  switch (check.kind) {
+    case 'substring':
+    case 'regex':
+      return true;
+    case 'judge':
+      return hasJudge;
+    default:
+      return false;
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array<R>(items.length);
+  let next = 0;
+  const width = Math.max(1, Math.min(limit, items.length));
+  const runners = Array.from({ length: width }, async () => {
+    for (;;) {
+      const i = next;
+      next += 1;
+      const item = items[i];
+      if (item === undefined) return;
+      out[i] = await worker(item, i);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+/**
+ * Ask a COLD, tool-less model every candidate and report which ones it got
+ * right. This is the only step in the pipeline that measures null-passability
+ * BEFORE the cheap and paid tiers are paid for.
+ *
+ * Deliberately stricter than the run-time no-tools null model in three ways:
+ * it forbids hedging (four measured v1 null-passes were scored on text that
+ * openly disclaimed the answer), it withholds the server instructions (a
+ * measured leak channel), and it decides with the task's OWN predicate through
+ * `evaluateCheck`, so the screen and the gate can never disagree about what
+ * "passing" means.
+ *
+ * It is NOT a gate and it never touches one: screened-out candidates never
+ * enter the suite, so they never enter the null_baseline denominator. The gate
+ * still runs its three null models over 100 percent of the admitted suite. A
+ * suite can pass this screen and still be killed by the gate, which is the
+ * intended direction.
+ */
+export async function runNullScreen(
+  tasks: readonly FitnessTask[],
+  screen: NullScreenOptions,
+): Promise<NullScreenResult> {
+  const client = screen.client;
+  if (client === undefined || tasks.length === 0) {
+    return {
+      enabled: false,
+      model: null,
+      screened: 0,
+      dropped: 0,
+      errors: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      records: tasks.map((task) => ({
+        taskId: task.id,
+        checkKind: task.check.kind,
+        screenable: false,
+        coldPassed: null,
+      })),
+    };
+  }
+
+  const hasJudge = typeof screen.judge === 'function';
+  const records: NullScreenRecord[] = await mapWithConcurrency<FitnessTask, NullScreenRecord>(
+    tasks,
+    screen.concurrency ?? DEFAULT_SCREEN_CONCURRENCY,
+    async (task): Promise<NullScreenRecord> => {
+    const base = { taskId: task.id, checkKind: task.check.kind } as const;
+    if (!screenableKind(task.check, hasJudge)) {
+      return { ...base, screenable: false, coldPassed: null };
+    }
+    try {
+      const message = await client.messages.create({
+        model: screen.model,
+        max_tokens: screen.maxTokens ?? DEFAULT_SCREEN_MAX_TOKENS,
+        system: NULL_SCREEN_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: task.prompt }],
+        output_config: { effort: screen.effort ?? 'low' },
+      });
+      const coldAnswer = textOf(message);
+      const passed = await evaluateCheck(
+        task.check,
+        { finalText: coldAnswer, calls: [] },
+        task,
+        screen.judge,
+      );
+      const usage = message.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+      return {
+        ...base,
+        screenable: true,
+        coldPassed: passed,
+        coldAnswerExcerpt: coldAnswer.slice(0, SCREEN_EXCERPT_CHARS),
+        inputTokens: usage?.input_tokens ?? 0,
+        outputTokens: usage?.output_tokens ?? 0,
+      };
+    } catch (error) {
+      // A probe that failed is NOT evidence that the task is null-hard, and it
+      // is not evidence that it is null-easy either. The candidate is kept and
+      // the failure is recorded, never swallowed.
+      return {
+        ...base,
+        screenable: true,
+        coldPassed: null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    },
+  );
+
+  return {
+    enabled: true,
+    model: screen.model,
+    screened: records.filter((r) => r.screenable && r.error === undefined).length,
+    dropped: records.filter((r) => r.coldPassed === true).length,
+    errors: records.filter((r) => r.error !== undefined).length,
+    inputTokens: records.reduce((sum, r) => sum + (r.inputTokens ?? 0), 0),
+    outputTokens: records.reduce((sum, r) => sum + (r.outputTokens ?? 0), 0),
+    records,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
@@ -973,46 +1885,81 @@ export async function synthesizeTaskSuite(
   const index = new Map<string, ToolSurfaceEntry>(opts.tools.map((t) => [t.name, t]));
   const surface = new Set(index.keys());
   const chains = detectHandleChains(opts.tools);
+  const overGenerationFactor = opts.overGenerationFactor ?? DEFAULT_OVER_GENERATION_FACTOR;
+  // v2: ask for more than we need. The screen deletes a large fraction of the
+  // candidates, and asking for exactly the target guarantees a refusal that the
+  // generator, not the server, earned.
+  const requested = overGeneratedTarget(target, overGenerationFactor);
 
-  const raw = await askJudge(client, opts, buildGenerationPrompt(opts, index, chains, target));
-  let generated = raw.length;
+  const first = await askJudge(client, opts, buildGenerationPrompt(opts, index, chains, requested));
+  const raw = first.tasks;
+  const emitted = raw.length;
+  let entriesDiscarded = first.entriesDiscarded;
 
   // FREE gate, at generation time: the answer key may not be in the rendered
   // prompt. Offenders get one regeneration pass, then they are dropped.
   const leaksFound: AnswerLeak[] = [];
-  const offenders: { task: RawTask; token: string }[] = [];
+  const offenders: { task: RawTask; phrase: string }[] = [];
   for (const [i, task] of raw.entries()) {
     const rendered = renderPrompt(
       typeof task.promptTemplate === 'string' ? task.promptTemplate : (task.prompt ?? ''),
-      normalizeParams(task.params),
+      bindParams(task.params),
     );
-    const token = findAnswerLeak({ prompt: rendered, answerKey: task.answerKey });
-    if (token !== null) {
+    const leak = scanAnswerLeak(
+      { prompt: rendered, answerKey: task.answerKey },
+      { params: Object.values(bindParams(task.params)) },
+    );
+    if (leak !== null) {
       const id = slugId(task.id, i);
-      leaksFound.push({ taskId: id, token });
-      offenders.push({ task, token });
+      leaksFound.push({ taskId: id, phrase: leak.phrase, source: leak.source });
+      offenders.push({ task, phrase: leak.phrase });
     }
   }
 
   let candidates = raw;
+  let rewritten = 0;
   let regenerationAttempted = false;
+  const repairs: TaskRepair[] = [];
   if (offenders.length > 0) {
     regenerationAttempted = true;
     let rewrites: RawTask[] = [];
     try {
-      rewrites = await askJudge(client, opts, buildRepairPrompt(offenders));
-      generated += rewrites.length;
+      const repaired = await askJudge(client, opts, buildRepairPrompt(offenders));
+      rewrites = repaired.tasks;
+      entriesDiscarded += repaired.entriesDiscarded;
+      // NOT added to `generated`: a rewrite REPLACES an offender. v1's
+      // `generated += rewrites.length` inflated the admission-rate denominator
+      // and would have manufactured `admission_rate_below_minimum` refusals the
+      // moment the leak detector started firing.
+      rewritten = rewrites.length;
     } catch {
       // A failed repair pass is not fatal: the offenders simply stay dropped.
       rewrites = [];
     }
     const byId = new Map<string, RawTask>();
     for (const [i, r] of rewrites.entries()) byId.set(slugId(r.id, i), r);
+    // Positional pairing is the fallback for a rewrite that came back with a
+    // blank id: v1 keyed such a rewrite as `task-<rewriteIndex>`, which never
+    // matched the offender's `task-<originalIndex>`, so the offender silently
+    // reverted to its leaking original and was dropped while
+    // `regenerationAttempted` still reported true. Positional pairing is only
+    // trusted when the counts line up, and the ledger records which way it went.
+    const positional = rewrites.length === offenders.length;
+    const offenderOrder = new Map(offenders.map((o, i) => [o.task, i]));
     candidates = raw.map((task, i) => {
+      const offenderIndex = offenderOrder.get(task);
+      if (offenderIndex === undefined) return task;
       const id = slugId(task.id, i);
-      if (!offenders.some((o) => o.task === task)) return task;
-      const replacement = byId.get(id);
-      return replacement ? { ...replacement, id: task.id } : task;
+      const byIdMatch = byId.get(id);
+      const replacement = byIdMatch ?? (positional ? rewrites[offenderIndex] : undefined);
+      if (replacement === undefined) return task;
+      repairs.push({
+        id,
+        kind: 'answer-leak-rewrite',
+        detail: 'replaced a prompt that stated its own answer key',
+        matchedBy: byIdMatch === undefined ? 'position' : 'id',
+      });
+      return { ...replacement, id: task.id };
     });
   }
 
@@ -1023,29 +1970,64 @@ export async function synthesizeTaskSuite(
     excludeDestructive,
     seen: new Set<string>(),
     dropped: [],
-    repairs: [],
+    repairs,
+    // DESIGN 17 injects `instructions` into the answering model, and tool
+    // descriptions ride along with every tool definition, so both are corpora
+    // the answer key may not appear in.
+    contextCorpus: [
+      ...(opts.instructions && opts.instructions.trim().length > 0 ? [opts.instructions] : []),
+      ...opts.tools.map((t) => t.description ?? '').filter((d) => d.length > 0),
+    ],
+    judgeCount: 0,
   };
 
-  const tasks: FitnessTask[] = [];
+  // `validateTask` runs the leak check on the FINAL rendered prompt itself, so
+  // an offender that still leaks after its one regeneration is dropped there,
+  // exactly once, and every candidate lands in exactly one bucket.
+  const validated: FitnessTask[] = [];
   for (const [i, candidate] of candidates.entries()) {
     const task = validateTask(candidate, i, ctx);
-    if (!task) continue;
-    // Re-run the leak check on the FINAL rendered prompt. Anything still leaking
-    // after its one regeneration is dropped; there is no second attempt.
-    const token = findAnswerLeak(task);
-    if (token !== null) {
+    if (task !== null) validated.push(task);
+  }
+
+  // v2 NULL SCREEN. Runs after validation (so it only pays for candidates that
+  // could have been admitted) and before the suite hash (so what it deleted was
+  // never part of any suite).
+  const screenOpts = opts.nullScreen;
+  const nullScreen = await runNullScreen(validated, screenOpts ?? { model: '' });
+  const dropOnCold = screenOpts?.dropOnCold !== false;
+  const coldById = new Map(nullScreen.records.map((r) => [r.taskId, r]));
+  const screened: FitnessTask[] = [];
+  for (const task of validated) {
+    const record = coldById.get(task.id);
+    if (nullScreen.enabled && dropOnCold && record?.coldPassed === true) {
       ctx.dropped.push({
         id: task.id,
-        reason: 'answer-leak',
-        detail: `answer key token ${JSON.stringify(token)} appears in the rendered prompt`,
+        reason: 'null_screen',
+        detail:
+          'a model with no tools at all answered this correctly, so it measures the model rather than the server',
+        evidence: {
+          checkKind: task.check.kind,
+          promptExcerpt: task.prompt.slice(0, 200),
+          ...(record.coldAnswerExcerpt === undefined
+            ? {}
+            : { coldAnswerExcerpt: record.coldAnswerExcerpt.slice(0, 200) }),
+        },
       });
       ctx.seen.delete(task.id);
       continue;
     }
-    tasks.push(task);
+    screened.push(task);
   }
 
+  // Over-generation can leave more valid tasks than the operator asked to drive.
+  // The surplus is NOT a drop (nothing is wrong with those tasks), so it is
+  // counted separately and the accounting still reconciles.
+  const tasks = screened.slice(0, target);
+  const trimmed = screened.length - tasks.length;
+
   const generator: GeneratorConfig = {
+    generatorVersion: GENERATOR_VERSION,
     synthesizerVersion: SYNTHESIZER_VERSION,
     generatorModel,
     serverSlug: opts.serverSlug,
@@ -1055,37 +2037,55 @@ export async function synthesizeTaskSuite(
     toolSurfaceDigest: toolSurfaceDigest(opts.tools),
     instructionsDigest:
       opts.instructions && opts.instructions.length > 0 ? sha256Hex(opts.instructions) : null,
+    effort: opts.effort ?? 'high',
+    maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    overGenerationFactor,
+    checkPolicyVersion: CHECK_POLICY_VERSION,
+    leakCheckMode: LEAK_CHECK_MODE,
+    nullScreen: {
+      enabled: nullScreen.enabled,
+      model: nullScreen.enabled ? (screenOpts?.model ?? null) : null,
+      maxTokens: screenOpts?.maxTokens ?? DEFAULT_SCREEN_MAX_TOKENS,
+      effort: screenOpts?.effort ?? 'low',
+      dropOnCold,
+    },
   };
 
   const suite: TaskSuite = {
     serverSlug: opts.serverSlug,
+    // `suite-meta.json` is an OUTPUT and never an input here: folding the ledger
+    // into the hash would make the hash circular.
     suiteHash: computeSuiteHash(tasks, generator, opts.seed),
     generatorModel,
     seed: opts.seed,
     tasks,
   };
 
+  const candidateCount = candidates.length;
+  const accounted = tasks.length + ctx.dropped.length + trimmed;
+
   return {
     suite,
     insufficient: tasks.length < minTasks,
     minTasks,
-    generated,
+    generated: emitted,
+    emitted,
+    rewritten,
+    candidates: candidateCount,
+    entriesDiscarded,
     admitted: tasks.length,
+    trimmed,
+    // Published even when it fails: a wrong admission rate that nobody can see
+    // is worse than one the record admits it cannot reconcile.
+    reconciles: accounted === candidateCount,
+    shortfall: candidateCount - accounted,
     dropped: ctx.dropped,
     repairs: ctx.repairs,
     handleChains: chains,
     regenerationAttempted,
     leaksFound,
+    nullScreen,
+    generator,
+    surface: { toolCount: opts.tools.length, toolNames: opts.tools.map((t) => t.name) },
   };
-}
-
-function normalizeParams(params: unknown): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (params && typeof params === 'object') {
-    for (const [k, v] of Object.entries(params as Record<string, unknown>)) {
-      if (typeof v === 'string') out[k] = v;
-      else if (typeof v === 'number' || typeof v === 'boolean') out[k] = String(v);
-    }
-  }
-  return out;
 }

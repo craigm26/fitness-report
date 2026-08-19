@@ -40,6 +40,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { mcpTools, type MCPCallToolResultLike, type MCPToolLike } from '@anthropic-ai/sdk/helpers/beta/mcp';
 
+import { httpLayerFailure } from '../mcp/connect.js';
 import type { McpConnection, ToolCallOutcome } from '../mcp/connect.js';
 import { declaredDestructive, type ToolDescriptor, type RunnerTaskOutcome } from '../score/metrics.js';
 import type { TapeWriter } from '../tape/writer.js';
@@ -440,8 +441,20 @@ export async function driveTask(task: FitnessTask, opts: DriveOptions): Promise<
           // The scorer reads this event line to raise the SERVER finding.
           await event('fitness.schema_reject', { tool: wireName, detail });
         } else {
+          // Everything else that throws out of the client is a protocol error,
+          // and DESIGN decision 9 keeps it that way whether the JSON-RPC layer
+          // answered with an error or never got to speak at all. An HTTP-layer
+          // death (the aws-knowledge gateway 400) has already been recorded by
+          // the connection as its own `fitness.http_error` line; repeating the
+          // status here is what ties that transport observation to the task
+          // this call belonged to.
+          const http = httpLayerFailure(error);
           push('protocol-error', detail);
-          await event('fitness.protocol_error', { tool: wireName, detail });
+          await event('fitness.protocol_error', {
+            tool: wireName,
+            detail,
+            ...(http === null ? {} : { http })
+          });
         }
         throw error;
       }

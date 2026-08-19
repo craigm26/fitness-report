@@ -55,6 +55,7 @@ import {
   MIN_VIABLE_TASKS,
   findAnswerLeak,
   synthesizeTaskSuite,
+  unresolvedPlaceholders,
   type JudgeClient,
   type SynthesisResult
 } from './tasks/synthesize.js';
@@ -65,7 +66,9 @@ import type {
   ProbeResults,
   RunOutcome,
   ServerIdentity,
+  TapeEventLine,
   TapeLine,
+  TapeMessageLine,
   TaskSuite
 } from './types.js';
 
@@ -159,12 +162,14 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 // Frame buffering
 // ---------------------------------------------------------------------------
 
-interface BufferedFrame {
-  dir: 'in' | 'out';
-  raw: unknown;
-  t: string;
-  corrId?: string;
-}
+/**
+ * One line waiting for the tapes to open. The union keeps message and event
+ * lines in ONE queue so the flush preserves the order they were observed in;
+ * two queues would file every pre-suite event after every pre-suite frame.
+ */
+type BufferedLine =
+  | { type: 'message'; line: TapeMessageLine }
+  | { type: 'event'; line: TapeEventLine };
 
 /**
  * Holds wire frames until the tapes can be opened with the suite hash, then
@@ -173,7 +178,7 @@ interface BufferedFrame {
  * redacted publish copy would corrupt legitimate arguments like `page_token`.
  */
 class FrameRecorder {
-  private buffered: BufferedFrame[] = [];
+  private buffered: BufferedLine[] = [];
   private writer: TapeWriter | undefined;
   readonly records: TraceRecord[] = [];
 
@@ -205,22 +210,37 @@ class FrameRecorder {
   capture = (dir: 'in' | 'out', raw: unknown, t: string, corrId?: string): void => {
     const tapeDir = FrameRecorder.toTapeDir(dir);
     this.records.push({ t, dir: tapeDir, raw, source: 'fitness-report', ...(corrId === undefined ? {} : { corr_id: corrId }) });
+    const line: TapeMessageLine = { t, dir: tapeDir, raw, ...(corrId === undefined ? {} : { corr_id: corrId }) };
     if (this.writer === undefined) {
-      this.buffered.push({ dir: tapeDir, raw, t, corrId });
+      this.buffered.push({ type: 'message', line });
       return;
     }
-    void this.writer.writeMessage({ t, dir: tapeDir, raw, ...(corrId === undefined ? {} : { corr_id: corrId }) });
+    void this.writer.writeMessage(line);
+  };
+
+  /**
+   * Harness-native events from the connection (`fitness.http_error`), which is
+   * the only account the tape has of a request that died below JSON-RPC.
+   *
+   * NOT pushed into `records`: that array is the scorer's pairing input, where
+   * a `dir:'event'` line would either be ignored or, worse, counted. It reaches
+   * `mcpTapeRecords` the same way every other written line does, through the
+   * writer's own onFrame tap.
+   */
+  captureEvent = (kind: string, raw: unknown, t: string, corrId?: string): void => {
+    const line: TapeEventLine = { t, dir: 'event', kind, raw, ...(corrId === undefined ? {} : { corr_id: corrId }) };
+    if (this.writer === undefined) {
+      this.buffered.push({ type: 'event', line });
+      return;
+    }
+    void this.writer.writeEvent(line);
   };
 
   async attach(writer: TapeWriter): Promise<void> {
     this.writer = writer;
-    for (const frame of this.buffered) {
-      await writer.writeMessage({
-        t: frame.t,
-        dir: frame.dir,
-        raw: frame.raw,
-        ...(frame.corrId === undefined ? {} : { corr_id: frame.corrId })
-      });
+    for (const buffered of this.buffered) {
+      if (buffered.type === 'event') await writer.writeEvent(buffered.line);
+      else await writer.writeMessage(buffered.line);
     }
     this.buffered = [];
   }
@@ -280,7 +300,15 @@ export type ModelClient = JudgeClient & RunnerClient;
 export interface PipelineResult {
   report: FitnessReportJson;
   outDir: string;
-  files: { reportJson: string; reportMd: string; mcpTape: string; agentTape: string; suite: string | null };
+  files: {
+    reportJson: string;
+    reportMd: string;
+    mcpTape: string;
+    agentTape: string;
+    suite: string | null;
+    /** `suite-meta.json`, the serialized synthesis ledger. */
+    suiteMeta: string | null;
+  };
 }
 
 export async function runPipeline(opts: CliOptions, deps: {
@@ -325,6 +353,7 @@ export async function runPipeline(opts: CliOptions, deps: {
       ...(opts.pin === undefined ? {} : { pin: opts.pin }),
       ...(opts.timeoutMs === undefined ? {} : { timeoutMs: opts.timeoutMs }),
       onFrame: recorder.capture,
+      onEvent: recorder.captureEvent,
       now
     });
   } catch (error) {
@@ -408,6 +437,7 @@ export async function runPipeline(opts: CliOptions, deps: {
   log(`tool surface: ${tools.length} tools`);
 
   let synthesis: SynthesisResult | undefined;
+  let synthesisFailure: { kind: string; message: string } | null = null;
   let suite: TaskSuite = {
     serverSlug: identity.slug,
     suiteHash: 'no-suite',
@@ -415,6 +445,7 @@ export async function runPipeline(opts: CliOptions, deps: {
     seed: opts.seed,
     tasks: []
   };
+  let synthesisEndedAt = startedAt;
   if (anthropic !== undefined) {
     log(`synthesizing tasks with ${opts.judge}`);
     try {
@@ -425,13 +456,31 @@ export async function runPipeline(opts: CliOptions, deps: {
         seed: opts.seed,
         generatorModel: opts.judge,
         ...(opts.maxTasks === undefined ? {} : { targetTaskCount: opts.maxTasks }),
-        minTasks: MIN_VIABLE_TASKS
+        minTasks: MIN_VIABLE_TASKS,
+        // GENERATOR v2 null screen. The screen runs on the RUNNER model, never
+        // the judge: the null_baseline gate measures the noise floor with the
+        // runner, so screening with anything else lets through exactly the
+        // candidates that gate will then kill, after the cheap and paid tiers
+        // have already been paid for.
+        nullScreen: {
+          client: anthropic,
+          model: opts.runner,
+          judge: judgeFor(anthropic, opts.judge)
+        }
       });
       suite = synthesis.suite;
-      log(`suite ${suite.suiteHash.slice(0, 12)}: ${suite.tasks.length} tasks admitted of ${synthesis.generated} generated`);
+      log(
+        `suite ${suite.suiteHash.slice(0, 12)}: ${suite.tasks.length} admitted of ${synthesis.candidates} candidates ` +
+          `(${synthesis.nullScreen.dropped} deleted by the null screen)`
+      );
     } catch (error) {
+      synthesisFailure = {
+        kind: error instanceof Error ? error.name : 'error',
+        message: describe(error)
+      };
       notes.push(`Task synthesis failed: ${describe(error)}`);
     }
+    synthesisEndedAt = now().toISOString();
   }
 
   // -- open the tapes (the suite hash is the configHash) ---------------------
@@ -471,10 +520,61 @@ export async function runPipeline(opts: CliOptions, deps: {
     await mcpTape.writeEvent({ t: now().toISOString(), dir: 'event', kind: 'fitness.gate', raw: { gate, ...(data as object) } });
   };
 
+  // -- synthesis evidence ----------------------------------------------------
+  //
+  // The judge call touches neither plane, so in v1 a refusal that said "12
+  // candidates became 5" had no recorded evidence anywhere: SynthesisResult died
+  // in this function's local scope and finish() wrote only suite.json. DESIGN
+  // decision 20 requires every finding to link to the recorded session that
+  // justifies it, so the ledger is serialized to suite-meta.json AND mirrored
+  // onto the mcp plane. `dir:'event'` with the payload in `raw` (DESIGN 5 plus
+  // the CONTRACT CHANGE note in src/types.ts): never `data`, never 'in'/'out'.
+  // No corr_id: this is a suite-level event, not a task-level one.
+  const suiteMeta = buildSuiteMeta({
+    runId,
+    serverSlug: identity.slug,
+    suiteHash: suite.suiteHash,
+    synthesis,
+    failure: synthesisFailure,
+    tools
+  });
+  await mcpTape.writeEvent({
+    t: synthesisEndedAt,
+    dir: 'event',
+    kind: 'fitness.synthesis',
+    raw: compactSynthesis(suiteMeta)
+  });
+  if (synthesis !== undefined) {
+    for (const record of synthesis.nullScreen.records) {
+      await mcpTape.writeEvent({
+        t: synthesisEndedAt,
+        dir: 'event',
+        kind: 'fitness.null_screen',
+        corr_id: `${record.taskId}::screen`,
+        raw: record
+      });
+    }
+  }
+
   // -- FREE: structural, answer leak, suite size, plan and power -------------
 
   let outcome: RunOutcome = 'SCORED';
   const tasks = suite.tasks;
+
+  /**
+   * Everything the ANSWERING model reads besides the prompt. DESIGN decision 17
+   * injects `instructions` into the runner system prompt and every tool
+   * definition carries its description, so both are places an answer key can
+   * leak from without ever touching a prompt.
+   */
+  const leakCorpus = {
+    context: [
+      ...(typeof identity.instructions === 'string' && identity.instructions.trim().length > 0
+        ? [identity.instructions]
+        : []),
+      ...tools.map((t) => (typeof t.description === 'string' ? t.description : '')).filter((d) => d.length > 0)
+    ]
+  };
 
   if (synthesis === undefined) {
     ledger.add({
@@ -487,6 +587,30 @@ export async function runPipeline(opts: CliOptions, deps: {
     ledger.refuse('structural');
     outcome = 'INDETERMINATE';
   } else {
+    /**
+     * Hoisted ABOVE the structural gate on purpose (v2 fix).
+     *
+     * `Ledger.refuse` keeps the FIRST gate that refuses, and structural fails
+     * with `too_few_generated` whenever the admitted suite is under 8, which is
+     * true of every suite the null screen emptied. The screen's own finding
+     * therefore never reached a published row: a server whose entire candidate
+     * set was answerable with no server at all published as `refusedAt:
+     * structural`, reason `too_few_generated`, outcome INSUFFICIENT_SURFACE.
+     * That is a statement about the server's SURFACE and it is the wrong one.
+     *
+     * So the screen's verdict is computed first, and when it explains the
+     * shortfall the structural refusal is deferred to `suite_size`, the gate
+     * that carries the screen ledger and the attribution string. Structural
+     * still records `ok: false` with its own counts; only the attribution
+     * moves. A structural failure the screen does NOT explain
+     * (`property_violated`: admitted tasks that do not hold) still refuses
+     * there, because that is an independent defect.
+     */
+    const screenDropped = synthesis.nullScreen.dropped;
+    const screenScreened = synthesis.nullScreen.screened;
+    const bigEnough = tasks.length >= MIN_VIABLE_TASKS && !synthesis.insufficient;
+    const nullAnswerable = !bigEnough && screenDropped > 0 && tasks.length + screenDropped >= MIN_VIABLE_TASKS;
+
     const structuralReport = structural(
       // The generator's own index space does not survive validation, so cases
       // are indexed by ADMISSION order. The counts, which are what the gate
@@ -498,56 +622,130 @@ export async function runPipeline(opts: CliOptions, deps: {
         task.prompt.trim().length > 0 &&
         task.expectedTools.length > 0 &&
         task.expectedTools.every((t) => tools.some((tool) => tool.name === t)) &&
-        findAnswerLeak(task) === null,
-      { n: Math.max(synthesis.generated, tasks.length), minGenerated: MIN_VIABLE_TASKS }
+        // A property admission does NOT enforce, re-derived from the RENDERED
+        // content (structural.ts's own docstring: a predicate that re-checks
+        // what the generator already guaranteed verifies nothing, because the
+        // two agree by construction). An unbound {{placeholder}} shipped to an
+        // agent is a broken task, and it was unreachable only while param
+        // binding was broken. Duplicate tool names are deliberately NOT here:
+        // admission normalizes those, because one repeated string is not worth
+        // refusing a whole server row over.
+        unresolvedPlaceholders(task.prompt).length === 0 &&
+        findAnswerLeak(task, leakCorpus) === null,
+      // The denominator is the number of candidates that were actually
+      // VALIDATED. v1 passed `max(generated, tasks.length)` while `generated`
+      // double-counted the repair pass, which understated the admission rate
+      // and would have refused runs the generator did not earn. The 0.25 floor
+      // and the absolute minimum of 8 are untouched.
+      { n: Math.max(synthesis.candidates, tasks.length), minGenerated: MIN_VIABLE_TASKS }
     );
     ledger.add({
       gate: 'structural',
       ok: structuralReport.ok,
       costTier: 'free',
       reason: structuralReport.reason,
-      detail: { ...structuralReport, explain: explainStructural(structuralReport) }
+      detail: {
+        ...structuralReport,
+        explain: explainStructural(structuralReport),
+        synthesis: compactSynthesis(suiteMeta),
+        // The screen counts live in the structural record too, not only nested
+        // under `synthesis`, because this is the record whose nRequested and
+        // nGenerated a reader will otherwise subtract into a wrong "dropped".
+        nullScreenDropped: screenDropped,
+        nullScreenScreened: screenScreened,
+        note:
+          'nRequested is the candidate count the generator actually put through validation. Generator ' +
+          `${synthesis.generator.generatorVersion}: v1 and v2 admission rates are not comparable and must never share a table.`
+      }
     });
     await gateEvent('structural', { ok: structuralReport.ok, reason: structuralReport.reason });
     if (!structuralReport.ok) {
-      ledger.refuse('structural');
-      outcome = structuralReport.reason === 'too_few_generated' ? 'INSUFFICIENT_SURFACE' : 'GATE_FAILED';
+      // `property_violated` is the generator shipping tasks that do not hold,
+      // which the screen cannot explain and which refuses here. Every other
+      // structural failure is a COUNT, and a count the screen emptied is
+      // attributed to the screen (see the hoist comment above).
+      const countFailure = structuralReport.reason !== 'property_violated';
+      if (nullAnswerable && countFailure) {
+        notes.push(
+          `Structural counts are below their floors because the null screen deleted ${screenDropped} of ` +
+            `${screenScreened} screened candidates. The refusal is recorded against the suite size gate, ` +
+            'which carries that ledger, rather than against structural.'
+        );
+      } else {
+        ledger.refuse('structural');
+        outcome = structuralReport.reason === 'too_few_generated' ? 'INSUFFICIENT_SURFACE' : 'GATE_FAILED';
+      }
     }
 
     // `phrase`, not `token`: the publish-time redactor replaces any field
     // literally named `token`, and that would erase the leak evidence this
     // record exists to show.
-    const leaks = tasks.map((task) => ({ id: task.id, phrase: findAnswerLeak(task) })).filter((l) => l.phrase !== null);
+    const leaks = tasks
+      .map((task) => ({ id: task.id, phrase: findAnswerLeak(task, leakCorpus) }))
+      .filter((l) => l.phrase !== null);
     ledger.add({
       gate: 'answer_leak',
       ok: leaks.length === 0,
       costTier: 'free',
       reason: leaks.length === 0 ? 'ok' : 'answer_in_prompt',
-      detail: { leaks, regenerationAttempted: synthesis.regenerationAttempted, leaksFoundAtGeneration: synthesis.leaksFound }
+      detail: {
+        leaks,
+        regenerationAttempted: synthesis.regenerationAttempted,
+        leaksFoundAtGeneration: synthesis.leaksFound,
+        // The corpus is wider than v1's. The answering model is given the
+        // server `instructions` string (DESIGN 17) and every tool description,
+        // so a key that appears there leaks through a channel the v1 scan never
+        // read: huggingface's instructions say the tools are used "anonymously"
+        // and a task's answer key was `anonymous`. Widening the scan makes this
+        // FREE gate strictly stricter and costs zero tokens.
+        corpus: ['rendered prompt', 'bound params', 'server instructions', 'tool descriptions'],
+        contextLeakDropsAtGeneration: synthesis.dropped.filter((d) => d.reason === 'context-answer-leak').length
+      }
     });
     if (leaks.length > 0) {
       ledger.refuse('answer_leak');
       outcome = 'GATE_FAILED';
     }
 
-    const bigEnough = tasks.length >= MIN_VIABLE_TASKS && !synthesis.insufficient;
+    // Two different findings hide behind one refusal. "The surface was too small
+    // to generate from" is a statement about the SERVER. "Everything we could
+    // generate was answerable with no server at all" is a statement about the
+    // server's VALUE ADD, and it is arguably the most interesting thing this
+    // harness can find. The threshold does not move (both still refuse below 8);
+    // only the typed reason distinguishes them, with the screen ledger as its
+    // evidence. `bigEnough`, `screenDropped` and `nullAnswerable` are computed
+    // above the structural gate so this gate can own the attribution.
     ledger.add({
       gate: 'suite_size',
       ok: bigEnough,
       costTier: 'free',
-      reason: bigEnough ? 'ok' : 'below_minimum_suite_size',
+      reason: bigEnough ? 'ok' : nullAnswerable ? 'all_candidates_null_answerable' : 'below_minimum_suite_size',
       detail: {
         nTasks: tasks.length,
         minTasks: MIN_VIABLE_TASKS,
         toolCount: tools.length,
+        nullScreenDropped: screenDropped,
+        nullScreenScreened: synthesis.nullScreen.screened,
         note:
           'With a median of 2.5 tools on the open roster, a suite below 8 tasks cannot separate a good server ' +
-          'from a lucky one. This refuses rather than publishing a 2-task 100 percent.'
+          'from a lucky one. This refuses rather than publishing a 2-task 100 percent.',
+        ...(nullAnswerable
+          ? {
+              attribution:
+                'Enough candidates were generated. They were deleted because a model with no server answered them ' +
+                'correctly, so this refusal is about what the server adds, not about how small its surface is. ' +
+                'The per-candidate screen verdicts are in suite-meta.json.'
+            }
+          : {})
       }
     });
     if (!bigEnough) {
       ledger.refuse('suite_size');
-      if (outcome === 'SCORED') outcome = 'INSUFFICIENT_SURFACE';
+      // DEGENERATE, not INSUFFICIENT_SURFACE: a suite the screen emptied is one
+      // a null model already answered, which is what DEGENERATE names. Calling
+      // it INSUFFICIENT_SURFACE publishes "this server has too few tools" over a
+      // server whose tools were never needed.
+      if (outcome === 'SCORED') outcome = nullAnswerable ? 'DEGENERATE' : 'INSUFFICIENT_SURFACE';
     }
 
     const design = plan(0.9, 0.8);
@@ -813,6 +1011,34 @@ export async function runPipeline(opts: CliOptions, deps: {
   }
 
   if (!taskBudgetSupported) methods.push(...driveNotes);
+  // GENERATOR v2 disclosure. The screen is the one place in this design where a
+  // reader could reasonably suspect the score of having been engineered, so the
+  // bias, its direction and the number that reveals it are stated outright.
+  if (synthesis !== undefined) {
+    methods.push(
+      `Task suite generated by ${synthesis.generator.generatorVersion} (judge ${synthesis.generator.generatorModel}). ` +
+        'v1 and v2 suites are different measurements and are never merged in one leaderboard column.'
+    );
+    if (synthesis.nullScreen.enabled) {
+      methods.push(
+        'Task candidates are screened at generation time with a single no-tools probe on the runner model. Candidates the cold model answers correctly are deleted before any gate runs, with the reason recorded. The run-time null baseline therefore measures the noise floor of a null-screened suite, not of an arbitrary suite, and is biased downward by construction.',
+        'The screen simulates one of the three null models the gate uses, weakly and with a single sample. It never removes a task from the gate denominator and never changes a gate threshold; the null_baseline rule, its 0.5 ratio and its 95th percentile are unchanged from v1.',
+        'The share of generated candidates the screen deleted is published per server.',
+        `Null screen on this server: ${synthesis.nullScreen.dropped} of ${synthesis.nullScreen.screened} screened candidates were answerable with no server at all.`,
+        `Screen spend is not on either tape. The screen made ${synthesis.nullScreen.screened} runner-model calls ` +
+          `(${synthesis.nullScreen.inputTokens} input and ${synthesis.nullScreen.outputTokens} output tokens) before the ` +
+          'suite existed, so trace_stats cannot see them and any measured cost figure for this run excludes them. The ' +
+          'counts are published in the synthesis ledger instead of being dropped.'
+      );
+    }
+    if (!synthesis.reconciles) {
+      methods.push(
+        `Synthesis accounting did not reconcile: ${synthesis.candidates} candidates against ` +
+          `${synthesis.admitted} admitted plus ${synthesis.dropped.length} dropped plus ${synthesis.trimmed} trimmed ` +
+          `(shortfall ${synthesis.shortfall}). The admission rate above is therefore approximate, and suite-meta.json records the gap rather than hiding it.`
+      );
+    }
+  }
   if (opts.evidenceDrive && publishBlocked()) {
     methods.push(
       'Operator ran with --evidence-drive: the refusal stands and no score is published, but the drive ran anyway so the recording exists.'
@@ -838,6 +1064,7 @@ export async function runPipeline(opts: CliOptions, deps: {
     scoreNotes,
     suiteHash: suite.suiteHash,
     suite,
+    suiteMeta,
     recorder,
     agentRecords,
     mcpTapeRecords,
@@ -871,6 +1098,8 @@ interface FinishInput {
   scoreNotes?: readonly string[];
   suiteHash: string;
   suite?: TaskSuite;
+  /** The synthesis ledger. Written even when synthesis threw. */
+  suiteMeta?: SuiteMetaJson;
   recorder: FrameRecorder;
   agentRecords: TraceRecord[];
   /** Mirror of every LINE on the mcp plane, for `trace_stats`. */
@@ -955,6 +1184,15 @@ async function finish(input: FinishInput): Promise<PipelineResult> {
     agent: input.agentRecords
   });
 
+  // The generator identity, lifted out of the synthesis ledger to the top of
+  // the record. It is already inside the suite hash, but a hash cannot be
+  // grouped on and the leaderboard must refuse to rank a v1 denominator against
+  // a v2 one.
+  const generatorConfig = input.suiteMeta?.generator as
+    | { generatorVersion?: string; nullScreen?: { enabled?: boolean } }
+    | null
+    | undefined;
+
   const rawReport = buildReport({
     runId: input.runId,
     startedAt: input.startedAt,
@@ -963,6 +1201,8 @@ async function finish(input: FinishInput): Promise<PipelineResult> {
     judgeModel: input.opts.judge,
     suiteHash: input.suiteHash,
     taskBudget: input.opts.taskBudget,
+    generatorVersion: generatorConfig?.generatorVersion ?? null,
+    nullScreenEnabled: generatorConfig?.nullScreen?.enabled === true,
     server: input.server,
     probes: input.probes,
     gates: {
@@ -996,11 +1236,29 @@ async function finish(input: FinishInput): Promise<PipelineResult> {
     await writeFile(suitePath, JSON.stringify(input.suite, null, 2) + '\n', 'utf8');
   }
 
+  // The synthesis ledger is written whenever synthesis was ATTEMPTED, including
+  // the run where it threw: "12 candidates became 5" with no record of which
+  // rule fired is a refusal nobody can defend. It carries our own generated
+  // text, so it is redacted for publication exactly like the report is.
+  let suiteMetaPath: string | null = null;
+  if (input.suiteMeta !== undefined) {
+    suiteMetaPath = join(input.outDir, 'suite-meta.json');
+    const redacted = redactReport(input.suiteMeta, secrets);
+    await writeFile(suiteMetaPath, JSON.stringify(redacted, null, 2) + '\n', 'utf8');
+  }
+
   input.log(`outcome ${report.outcome}; wrote ${reportJson}`);
   return {
     report,
     outDir: input.outDir,
-    files: { reportJson, reportMd, mcpTape: mcpPath, agentTape: agentPath, suite: suitePath }
+    files: {
+      reportJson,
+      reportMd,
+      mcpTape: mcpPath,
+      agentTape: agentPath,
+      suite: suitePath,
+      suiteMeta: suiteMetaPath
+    }
   };
 }
 
@@ -1022,6 +1280,135 @@ function slugOf(url: string): string {
   } catch {
     return 'server';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Synthesis ledger (schema `fitness-report.suite-meta/1`)
+// ---------------------------------------------------------------------------
+
+/**
+ * The serialized drop ledger.
+ *
+ * Written for EVERY run, including one where synthesis threw: a refusal whose
+ * cause is not recorded is exactly the bare-lint-count failure DESIGN's opening
+ * paragraph forbids. Note what is NOT here: this file is an OUTPUT and never an
+ * input to `suiteHash`, or the hash would be circular.
+ *
+ * Field naming is load-bearing. The leaked answer string is `phrase`, never
+ * `token`: src/tape/default-redact.json carries a descend-anywhere `$..token`
+ * rule and the published copy would erase exactly the evidence this file
+ * exists to carry. Same reason nothing here is called secret, password,
+ * api_key, apiKey, access_key, bearer or authorization.
+ *
+ * Dropped candidates' prompts may contain their own answer keys by definition.
+ * That is fine to publish: it is our generated text, not a credential.
+ */
+export interface SuiteMetaJson {
+  schema: 'fitness-report.suite-meta/1';
+  runId: string;
+  serverSlug: string;
+  suiteHash: string;
+  generator: unknown;
+  surface: { toolCount: number; toolNames: readonly string[] };
+  yield: {
+    emitted: number;
+    rewritten: number;
+    candidates: number;
+    entriesDiscarded: number;
+    admitted: number;
+    trimmed: number;
+    admissionRate: number | null;
+    reconciles: boolean;
+    shortfall: number;
+    minTasks: number;
+    insufficient: boolean;
+  };
+  nullScreen: unknown;
+  dropped: readonly unknown[];
+  dropsByRule: Record<string, number>;
+  repairs: readonly unknown[];
+  handleChains: readonly unknown[];
+  leaks: { atGeneration: readonly unknown[]; regenerationAttempted: boolean };
+  failure: { kind: string; message: string } | null;
+}
+
+export function buildSuiteMeta(input: {
+  runId: string;
+  serverSlug: string;
+  suiteHash: string;
+  synthesis: SynthesisResult | undefined;
+  failure: { kind: string; message: string } | null;
+  tools: readonly ToolDescriptor[];
+}): SuiteMetaJson {
+  const s = input.synthesis;
+  const dropsByRule: Record<string, number> = {};
+  for (const drop of s?.dropped ?? []) dropsByRule[drop.reason] = (dropsByRule[drop.reason] ?? 0) + 1;
+  return {
+    schema: 'fitness-report.suite-meta/1',
+    runId: input.runId,
+    serverSlug: input.serverSlug,
+    suiteHash: input.suiteHash,
+    generator: s?.generator ?? null,
+    surface: s?.surface ?? { toolCount: input.tools.length, toolNames: input.tools.map((t) => t.name) },
+    yield: {
+      emitted: s?.emitted ?? 0,
+      rewritten: s?.rewritten ?? 0,
+      candidates: s?.candidates ?? 0,
+      entriesDiscarded: s?.entriesDiscarded ?? 0,
+      admitted: s?.admitted ?? 0,
+      trimmed: s?.trimmed ?? 0,
+      admissionRate: s === undefined || s.candidates === 0 ? null : s.admitted / s.candidates,
+      reconciles: s?.reconciles ?? false,
+      shortfall: s?.shortfall ?? 0,
+      minTasks: s?.minTasks ?? MIN_VIABLE_TASKS,
+      insufficient: s?.insufficient ?? true
+    },
+    nullScreen: s?.nullScreen ?? { enabled: false, model: null, screened: 0, dropped: 0, errors: 0, records: [] },
+    dropped: (s?.dropped ?? []).map((d) => ({ id: d.id, rule: d.reason, detail: d.detail, evidence: d.evidence })),
+    dropsByRule,
+    repairs: s?.repairs ?? [],
+    handleChains: s?.handleChains ?? [],
+    leaks: { atGeneration: s?.leaksFound ?? [], regenerationAttempted: s?.regenerationAttempted ?? false },
+    failure: input.failure
+  };
+}
+
+/** The tape mirror: one line, counts and rules, no per-candidate prose. */
+export function compactSynthesis(meta: SuiteMetaJson): unknown {
+  const screen = meta.nullScreen as {
+    enabled?: boolean;
+    model?: string | null;
+    screened?: number;
+    dropped?: number;
+    errors?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
+  const generator = meta.generator as { generatorVersion?: string; generatorModel?: string } | null;
+  return {
+    suiteHash: meta.suiteHash,
+    generatorVersion: generator?.generatorVersion ?? null,
+    generatorModel: generator?.generatorModel ?? null,
+    yield: meta.yield,
+    dropsByRule: meta.dropsByRule,
+    nullScreen: {
+      enabled: screen.enabled ?? false,
+      model: screen.model ?? null,
+      screened: screen.screened ?? 0,
+      dropped: screen.dropped ?? 0,
+      errors: screen.errors ?? 0,
+      // The screen calls the RUNNER model once per validated candidate and
+      // those calls land on neither tape, so `trace_stats` cannot see them.
+      // Published here or they are spend nobody can account for.
+      inputTokens: screen.inputTokens ?? 0,
+      outputTokens: screen.outputTokens ?? 0
+    },
+    repairs: meta.repairs.length,
+    leaksAtGeneration: meta.leaks.atGeneration.length,
+    regenerationAttempted: meta.leaks.regenerationAttempted,
+    failure: meta.failure,
+    detail: 'full ledger in suite-meta.json'
+  };
 }
 
 /** A `judge` check, answered by the judge model with one word. */

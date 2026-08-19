@@ -41,6 +41,9 @@ export interface ReportInput {
   judgeModel: string;
   suiteHash: string;
   taskBudget: number;
+  /** Task generator version. Rows from different generators are never ranked together. */
+  generatorVersion?: string | null;
+  nullScreenEnabled?: boolean;
   server: ServerIdentity;
   probes: ProbeResults;
   gates: GateLedger;
@@ -66,7 +69,11 @@ export function buildReport(input: ReportInput): FitnessReportJson {
       runnerModel: input.runnerModel,
       judgeModel: input.judgeModel,
       suiteHash: input.suiteHash,
-      taskBudget: input.taskBudget
+      taskBudget: input.taskBudget,
+      // Written whenever the caller knows it. A run whose synthesis threw has
+      // no generator to name, and `null` says that rather than guessing.
+      ...(input.generatorVersion === undefined ? {} : { generatorVersion: input.generatorVersion }),
+      ...(input.nullScreenEnabled === undefined ? {} : { nullScreenEnabled: input.nullScreenEnabled })
     },
     probes: input.probes,
     gates: input.gates,

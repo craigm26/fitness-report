@@ -48,11 +48,40 @@
  * synthesised into a `dir:'in'` frame (DESIGN decision 5 reserves those
  * directions for real JSON-RPC); it comes back to the caller for
  * `ProbeFinding.evidence` instead.
+ *
+ * ## HTTP-layer failures: the second hook
+ *
+ * Some servers fail BELOW JSON-RPC. The aws-knowledge gateway advertises five
+ * tools and answers `initialize` and `tools/list` normally, then answers every
+ * `tools/call` with a bare HTTP 400 whose body is the prose string
+ * `"Http operation is not supported for gateway protocol type MCP"`. No JSON-RPC
+ * envelope is ever produced, so `onFrame` has nothing to emit: the transport
+ * throws out of `send()` and the tape shows a request with no response and no
+ * explanation. Five tools, sixteen dead calls, and a recording that cannot say
+ * why.
+ *
+ * The fix is a SECOND hook, {@link EventHook}, wired as `onEvent`. It carries
+ * harness-native events (`kind: 'fitness.http_error'`), never JSON-RPC, and the
+ * two hooks stay separate on purpose:
+ *
+ *   - `onFrame` frames are JSON-RPC and get direction-flipped by the recorder
+ *     on the way to the tape (transport `'out'` is tape `'in'`). An event fed
+ *     through that seam would be flipped into a fake protocol frame and enter
+ *     request/response pairing as a phantom call.
+ *   - `onEvent` lines land as `dir:'event'` with a `kind`, per DESIGN decision 5
+ *     and docs/format-extensions.md §2, and are ignored by every pairing model.
+ *
+ * The payload (see {@link HttpErrorEvent}) carries the method, the tool name
+ * when there was one, the HTTP status, a <=300 character snippet of the response
+ * body verbatim, and the thrown message. The snippet is deliberately raw: it is
+ * the only evidence of what the gateway actually said, and it is redacted at
+ * PUBLISH time along with every other line (src/tape/redact.ts), never here.
  */
 
 import {
   Client,
   LOG_LEVEL_META_KEY,
+  SdkHttpError,
   StreamableHTTPClientTransport,
   isInputRequiredResult,
   type CacheMode,
@@ -89,6 +118,42 @@ export type FrameDirection = 'in' | 'out';
  * @param corrId      The current correlation id (taskId), when one is set.
  */
 export type FrameHook = (dir: FrameDirection, raw: unknown, observedIso: string, corrId?: string) => void;
+
+/**
+ * Called for every HARNESS-NATIVE event the connection emits. Deliberately a
+ * separate seam from {@link FrameHook}: these lines are written as
+ * `dir:'event'` with a `kind` and must never be flipped into, or paired as,
+ * JSON-RPC (DESIGN decision 5).
+ *
+ * @param kind        Event kind, e.g. {@link HTTP_ERROR_EVENT}.
+ * @param raw         Producer-defined payload (deep-cloned before it leaves).
+ * @param observedIso Observed ISO timestamp, read at the moment of the event.
+ * @param corrId      The active correlation id (taskId), when one is set.
+ */
+export type EventHook = (kind: string, raw: unknown, observedIso: string, corrId?: string) => void;
+
+/** `kind` of the event emitted when a request dies below the JSON-RPC layer. */
+export const HTTP_ERROR_EVENT = 'fitness.http_error';
+
+/** Hard cap on the recorded body snippet. Evidence, not a log sink. */
+export const HTTP_ERROR_BODY_SNIPPET_MAX = 300;
+
+/**
+ * Payload of a {@link HTTP_ERROR_EVENT} line. Every field is what the failure
+ * itself said; nothing is inferred.
+ */
+export interface HttpErrorEvent {
+  /** JSON-RPC method that was in flight (`tools/call`, `tools/list`, ...). */
+  method: string;
+  /** Present when the failing request was a `tools/call`. */
+  toolName?: string;
+  /** HTTP status, when the failure carried one (absent for a dead socket). */
+  status?: number;
+  /** Verbatim response body, truncated to {@link HTTP_ERROR_BODY_SNIPPET_MAX}. */
+  bodySnippet: string;
+  /** The thrown error's message. */
+  message: string;
+}
 
 /** One observed HTTP exchange underneath the JSON-RPC layer. */
 export interface HttpObservation {
@@ -141,6 +206,12 @@ export interface ConnectConfig {
   versionMode?: VersionNegotiationMode;
   /** Frame hook. See {@link FrameHook}. */
   onFrame?: FrameHook;
+  /**
+   * Harness-native event hook. See {@link EventHook}. Without it an HTTP-layer
+   * failure is invisible: the request frame is on the tape and nothing follows
+   * it.
+   */
+  onEvent?: EventHook;
   /** Injectable clock so observed timestamps are testable. */
   now?: () => Date;
   clientInfo?: ClientInfo;
@@ -291,6 +362,132 @@ export function isModernRevision(version: string | null | undefined): boolean {
   return typeof version === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(version) && version >= MODERN_PROTOCOL_VERSION;
 }
 
+// ---------------------------------------------------------------------------
+// HTTP-layer failure classification
+// ---------------------------------------------------------------------------
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** `<= max` characters, with the elision marked so a reader is never fooled. */
+export function bodySnippet(body: string, max: number = HTTP_ERROR_BODY_SNIPPET_MAX): string {
+  if (body.length <= max) return body;
+  return `${body.slice(0, max - 1)}…`;
+}
+
+/**
+ * The SDK's own transport-failure message shapes, verbatim from
+ * StreamableHTTPClientTransport: `Error POSTing to endpoint (HTTP <n>): <body>`
+ * and `Error POSTing to endpoint: <body>`. Matching this is how a plain `Error`
+ * thrown by the transport is told apart from an arbitrary error whose text
+ * happens to mention a status.
+ */
+const SDK_TRANSPORT_MESSAGE = /Error POSTing to endpoint(?: \(HTTP (\d{3})\))?:/;
+
+/**
+ * A JSON-RPC error response, which the tape already carries as an inbound
+ * frame. `ProtocolError.code` is a NUMBER (the JSON-RPC code); `SdkError.code`
+ * is a string enum, so this never catches an SDK-side failure.
+ */
+function isJsonRpcErrorResponse(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'number' && Number.isFinite(code);
+}
+
+/**
+ * HTTP status carried by a thrown TRANSPORT error, when it carried one.
+ *
+ * Only ever called on an error already known to be transport-level. It used to
+ * scrape `/\bHTTP (\d{3})\b/` out of any message, which turned a doc-proxy's
+ * `MCP error -32603: Upstream returned HTTP 502 while fetching the doc` into a
+ * fabricated HTTP-layer death with a status this client never observed. The
+ * message path now reads only the status the SDK itself formats, in its own
+ * message shape.
+ */
+function statusOf(error: unknown): number | undefined {
+  const direct = (error as { status?: unknown } | null)?.status;
+  if (typeof direct === 'number' && Number.isFinite(direct)) return direct;
+  const data = (error as { data?: unknown } | null)?.data;
+  if (isRecord(data) && typeof data['status'] === 'number' && Number.isFinite(data['status'])) {
+    return data['status'];
+  }
+  const parsed = SDK_TRANSPORT_MESSAGE.exec(describeError(error));
+  return parsed?.[1] === undefined ? undefined : Number(parsed[1]);
+}
+
+/**
+ * The response body, verbatim. `SdkHttpError` carries it on `data.text`; when a
+ * different transport threw, the SDK's own message shape
+ * (`Error POSTing to endpoint: <body>`) is the fallback.
+ */
+function bodyOf(error: unknown): string {
+  const data = (error as { data?: unknown } | null)?.data;
+  if (isRecord(data)) {
+    for (const key of ['text', 'body', 'bodyText'] as const) {
+      const value = data[key];
+      if (typeof value === 'string' && value.length > 0) return value;
+    }
+  }
+  const parsed = /Error POSTing to endpoint(?: \(HTTP \d{3}\))?:\s*([\s\S]+)$/.exec(describeError(error));
+  return parsed?.[1] ?? '';
+}
+
+/** Undici and friends report a dead socket through `cause.code`. */
+const NETWORK_CAUSE = /^(ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EPIPE|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|UND_ERR_)/;
+
+function isNetworkFailure(error: unknown): boolean {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const code = isRecord(cause) ? cause['code'] : undefined;
+  if (typeof code === 'string' && NETWORK_CAUSE.test(code)) return true;
+  return error instanceof TypeError && /fetch failed|network|terminated|socket/i.test(error.message);
+}
+
+/**
+ * Classify a thrown error as an HTTP-LAYER failure (the transport died before
+ * any JSON-RPC envelope existed) or not.
+ *
+ * Returns `null` for everything the recording already explains: a JSON-RPC
+ * error response is an inbound frame on the tape, an outputSchema rejection is
+ * a `schema-validation-reject` finding raised from a well-formed result, and a
+ * request timeout is a client-side deadline rather than something the server
+ * said. Only failures with NO envelope behind them earn an event, because those
+ * are the ones the tape cannot otherwise account for.
+ *
+ * EVERY FIELD IS WHAT THE FAILURE ITSELF SAID, and the classification is gated
+ * on evidence that the transport really died: an `SdkHttpError`, the SDK's own
+ * `Error POSTing to endpoint` message shape, or a dead socket. Anything else is
+ * left alone, however status-shaped its text. A doc proxy (gitmcp, deepwiki,
+ * exa, coingecko are all this shape) answers a failed upstream fetch with a
+ * perfectly ordinary JSON-RPC error whose MESSAGE names an HTTP status; the
+ * envelope is on the tape, and inventing a `fitness.http_error` beside it
+ * asserts a second, unfalsifiable account of the same failure with a status
+ * this client never observed. `data.status` on an error that carries a numeric
+ * JSON-RPC code is the same trap and is ignored for the same reason.
+ */
+export function httpLayerFailure(error: unknown): { status?: number; bodySnippet: string; message: string } | null {
+  if (error === null || typeof error !== 'object') return null;
+  const message = describeError(error);
+  const sdkHttp = SdkHttpError.isInstance(error);
+  if (!sdkHttp && isJsonRpcErrorResponse(error)) return null;
+  if (sdkHttp || SDK_TRANSPORT_MESSAGE.test(message)) {
+    const status = statusOf(error);
+    // An SdkHttpError is an HTTP failure by construction. A transport-shaped
+    // message earns the event only when it also names a 4xx/5xx, because the
+    // SDK uses the same wording for failures that never got a status at all.
+    if (sdkHttp || (status !== undefined && status >= 400 && status <= 599)) {
+      return {
+        ...(status === undefined ? {} : { status }),
+        bodySnippet: bodySnippet(bodyOf(error)),
+        message
+      };
+    }
+  }
+  // A socket that never answered is the same blind spot with no status to show.
+  if (isNetworkFailure(error)) return { bodySnippet: '', message };
+  return null;
+}
+
 /** Pull the JSON-RPC envelope out of an SSE-framed body (`data:` lines). */
 export function parseSseData(body: string): unknown {
   for (const block of body.split(/\r?\n\r?\n/)) {
@@ -360,6 +557,7 @@ interface ResolvedConfig {
   slug: string;
   credentialContext: CredentialContext;
   onFrame: FrameHook | undefined;
+  onEvent: EventHook | undefined;
   now: () => Date;
   clientInfo: ClientInfo;
   logLevel: LoggingLevel | null;
@@ -496,6 +694,38 @@ export class McpConnection {
     this.cfg.onFrame?.(dir, freezeFrame(raw), observedIso ?? this.nowIso(), this._corrId);
   }
 
+  /**
+   * Surface a harness-native event. Lands on the tape as `dir:'event'` with
+   * this `kind`, NEVER as a JSON-RPC message line (DESIGN decision 5).
+   */
+  emitEvent(kind: string, raw: unknown, observedIso?: string): void {
+    this.cfg.onEvent?.(kind, freezeFrame(raw), observedIso ?? this.nowIso(), this._corrId);
+  }
+
+  /**
+   * Record an HTTP-layer failure as a {@link HTTP_ERROR_EVENT} line and return
+   * the payload, or `null` when the error was not one (the caller then just
+   * rethrows and the existing JSON-RPC evidence stands).
+   *
+   * Called from every request path, because this is the ONE failure mode the
+   * two tapes cannot otherwise describe: the outbound frame is recorded, the
+   * transport throws below JSON-RPC, and no inbound frame ever exists.
+   */
+  noteHttpError(method: string, toolName: string | undefined, error: unknown): HttpErrorEvent | null {
+    const failure = httpLayerFailure(error);
+    if (failure === null) return null;
+    const payload: HttpErrorEvent = {
+      method,
+      ...(toolName === undefined ? {} : { toolName }),
+      ...(failure.status === undefined ? {} : { status: failure.status }),
+      bodySnippet: failure.bodySnippet,
+      message: failure.message
+    };
+    // Observed time, read now: this is when the failure crossed the seam.
+    this.emitEvent(HTTP_ERROR_EVENT, payload);
+    return payload;
+  }
+
   /** Verbatim `result` of the most recent response to `method`, as it hit the wire. */
   lastRawResult(method: string): unknown {
     return this._lastRawResult.get(method);
@@ -561,10 +791,15 @@ export class McpConnection {
   async listTools(opts: { cacheMode?: CacheMode } = {}): Promise<ListToolsResult> {
     const cacheMode: CacheMode = opts.cacheMode ?? 'bypass';
     const meta = this.metaFor();
-    return await this.client.listTools(meta === undefined ? undefined : { _meta: meta }, {
-      ...this.requestOptions(),
-      cacheMode
-    });
+    try {
+      return await this.client.listTools(meta === undefined ? undefined : { _meta: meta }, {
+        ...this.requestOptions(),
+        cacheMode
+      });
+    } catch (error) {
+      this.noteHttpError('tools/list', undefined, error);
+      throw error;
+    }
   }
 
   /**
@@ -581,11 +816,20 @@ export class McpConnection {
   ): Promise<ToolCallOutcome> {
     const meta = this.metaFor();
     const params = { name, arguments: args, ...(meta === undefined ? {} : { _meta: meta }) };
-    const result = (await this.client.callTool(params, {
-      ...this.requestOptions(),
-      allowInputRequired: true,
-      ...(opts.toolDefinition === undefined ? {} : { toolDefinition: opts.toolDefinition })
-    })) as unknown;
+    let result: unknown;
+    try {
+      result = (await this.client.callTool(params, {
+        ...this.requestOptions(),
+        allowInputRequired: true,
+        ...(opts.toolDefinition === undefined ? {} : { toolDefinition: opts.toolDefinition })
+      })) as unknown;
+    } catch (error) {
+      // A gateway that 400s every tools/call (aws-knowledge) throws here with
+      // no envelope behind it. Record what it said, then let the caller's own
+      // failure classification run: the throw is still the caller's to handle.
+      this.noteHttpError('tools/call', name, error);
+      throw error;
+    }
     if (isInputRequiredResult(result)) {
       return {
         kind: 'input_required',
@@ -627,10 +871,16 @@ export class McpConnection {
 
     for (let round = 1; round <= maxRounds + 1; round += 1) {
       const before = this.outboundIdsFor('tools/call').length;
-      const result = (await this.client.request({ method: 'tools/call', params }, {
-        ...this.requestOptions(),
-        allowInputRequired: true
-      })) as unknown;
+      let result: unknown;
+      try {
+        result = (await this.client.request({ method: 'tools/call', params }, {
+          ...this.requestOptions(),
+          allowInputRequired: true
+        })) as unknown;
+      } catch (error) {
+        this.noteHttpError('tools/call', name, error);
+        throw error;
+      }
       const issued = this.outboundIdsFor('tools/call');
       const requestId = issued.length > before ? issued[issued.length - 1] : undefined;
 
@@ -692,11 +942,22 @@ export class McpConnection {
 
     this.emitFrame('out', body);
 
-    const response = await this.cfg.fetchImpl(url, {
-      method: opts.httpMethod ?? 'POST',
-      headers,
-      body: JSON.stringify(body)
-    });
+    const method = typeof body['method'] === 'string' ? body['method'] : 'raw';
+    let response: Response;
+    try {
+      response = await this.cfg.fetchImpl(url, {
+        method: opts.httpMethod ?? 'POST',
+        headers,
+        body: JSON.stringify(body)
+      });
+    } catch (error) {
+      // A probe whose fetch never came back leaves the same silent gap: an
+      // outbound frame with nothing after it. A NON-throwing error status is
+      // deliberately not an event; it comes back as RawExchange and the probe
+      // renders it as ProbeFinding.evidence.
+      this.noteHttpError(method, undefined, error);
+      throw error;
+    }
 
     const contentType = response.headers.get('content-type');
     const sessionId = response.headers.get('mcp-session-id');
@@ -825,6 +1086,7 @@ export async function connect(cfg: ConnectConfig): Promise<McpConnection> {
     slug,
     credentialContext,
     onFrame: cfg.onFrame,
+    onEvent: cfg.onEvent,
     now,
     clientInfo,
     logLevel: cfg.logLevel === undefined ? 'debug' : cfg.logLevel,
@@ -880,6 +1142,9 @@ export async function connect(cfg: ConnectConfig): Promise<McpConnection> {
     await client.connect(framing, cfg.timeoutMs === undefined ? undefined : { timeout: cfg.timeoutMs });
   } catch (cause) {
     const lastStatus = observations.length === 0 ? null : (observations[observations.length - 1]?.status ?? null);
+    // A handshake that died below JSON-RPC gets the same event as a tool call
+    // that did: the buffered frames show the attempt, this shows what came back.
+    conn.noteHttpError('initialize', undefined, cause);
     // DESIGN decision 2: 401/403 and 5xx are never era evidence.
     const eraEvidence = lastStatus !== null && lastStatus !== 401 && lastStatus !== 403 && lastStatus < 500;
     await framing.close().catch(() => undefined);

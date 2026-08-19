@@ -41,19 +41,26 @@ afterAll(async () => {
 // A stubbed judge + runner
 // ---------------------------------------------------------------------------
 
-/** Ten tasks over the canary's real tool surface: enough to clear the floor. */
+/**
+ * Ten tasks over the canary's real tool surface: enough to clear the floor.
+ *
+ * GENERATOR v2 shape: `params` on the wire is the array of {name, value} pairs
+ * the structured-output schema produces, and every task declares
+ * `serverRequiredBecause`. A candidate without one is dropped by design.
+ */
 function suitePayload(count: number): string {
   const tasks = Array.from({ length: count }, (_, i) => ({
     id: `t${i + 1}`,
     promptTemplate: 'Fetch invoice {{id}} and report its status.',
-    params: { id: `inv_100${i}` },
+    params: [{ name: 'id', value: `inv_100${i}` }],
     expectedTools: ['get_invoice'],
     // A substantive predicate on purpose. `tool_called` alone is degenerate:
     // the stubbed-empty null model satisfies it by definition, and the null
     // gate correctly KILLs a suite built on it (verified while writing this).
     check: { kind: 'substring', where: 'final_text', value: 'status: open' },
     answerKey: `status-${i}`,
-    destructive: false
+    destructive: false,
+    serverRequiredBecause: 'volatile'
   }));
   return JSON.stringify({ tasks });
 }
@@ -81,8 +88,14 @@ function stubClient(opts: StubOptions): ModelClient {
   const client = {
     messages: {
       async create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
-        // The judge answers two different questions: synthesize a suite, and
-        // grade an answer. Only synthesis is exercised here.
+        // The client answers three different questions now: synthesize a suite,
+        // grade an answer, and act as the COLD no-tools probe the generator-v2
+        // null screen runs over every candidate. The cold model has never heard
+        // of this canary's invoices, so it says so and every candidate survives
+        // the screen.
+        if (typeof params.system === 'string' && params.system.includes('You have no tools available')) {
+          return message('UNKNOWN');
+        }
         const asked = JSON.stringify(params.messages);
         if (asked.includes('Rubric:')) return message('PASS');
         return message(suitePayload(opts.taskCount));
@@ -164,16 +177,20 @@ function answerKeyQuotingClient(taskCount: number): ModelClient {
     tasks: Array.from({ length: taskCount }, (_, i) => ({
       id: `t${i + 1}`,
       promptTemplate: 'Fetch invoice {{id}} and report its status.',
-      params: { id: `inv_100${i}` },
+      params: [{ name: 'id', value: `inv_100${i}` }],
       expectedTools: ['get_invoice'],
       check: { kind: 'substring', where: 'final_text', value: 'status: open' },
       answerKey: 'status: open',
-      destructive: false
+      destructive: false,
+      serverRequiredBecause: 'volatile'
     }))
   });
   return {
     messages: {
       async create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
+        if (typeof params.system === 'string' && params.system.includes('You have no tools available')) {
+          return message('UNKNOWN');
+        }
         if (JSON.stringify(params.messages).includes('Rubric:')) return message('PASS');
         return message(suite);
       }
@@ -337,6 +354,90 @@ describe('full pipeline against the canary', () => {
     expect(md).not.toContain('—');
   }, 120_000);
 
+  it('serializes the synthesis ledger to suite-meta.json and mirrors it onto the mcp plane', async () => {
+    // v1 read four fields off SynthesisResult and dropped the rest, so a
+    // refusal that said "12 candidates became 5" had no recorded evidence
+    // anywhere. DESIGN decision 20: every finding links to a recording.
+    const out = join(dir, 'ledger');
+    const result = await runPipeline(
+      { ...parseArgs(['run', canary.url]), out, constructReps: 1 },
+      { anthropic: stubClient({ taskCount: 10 }), log: () => undefined }
+    );
+
+    expect(result.files.suiteMeta).toBe(join(out, 'suite-meta.json'));
+    const meta = JSON.parse(await readFile(result.files.suiteMeta!, 'utf8')) as {
+      schema: string;
+      suiteHash: string;
+      generator: { generatorVersion: string; nullScreen: { enabled: boolean; model: string } };
+      surface: { toolCount: number; toolNames: string[] };
+      yield: { emitted: number; candidates: number; admitted: number; trimmed: number; reconciles: boolean; admissionRate: number };
+      dropped: { id: string; rule: string }[];
+      dropsByRule: Record<string, number>;
+      nullScreen: { enabled: boolean; screened: number; dropped: number; records: { taskId: string }[] };
+      failure: unknown;
+    };
+
+    expect(meta.schema).toBe('fitness-report.suite-meta/1');
+    expect(meta.suiteHash).toBe(result.report.run.suiteHash);
+    expect(meta.generator.generatorVersion).toBe('fitness-report-generator/2');
+    // The screen runs on the RUNNER model, never the judge.
+    expect(meta.generator.nullScreen).toMatchObject({ enabled: true, model: 'claude-sonnet-5' });
+    expect(meta.surface.toolNames).toContain('get_invoice');
+    expect(meta.yield.candidates).toBe(meta.yield.admitted + meta.dropped.length + meta.yield.trimmed);
+    expect(meta.yield.reconciles).toBe(true);
+    expect(meta.yield.admissionRate).toBe(1);
+    expect(meta.nullScreen.records).toHaveLength(10);
+    expect(meta.failure).toBeNull();
+
+    // One suite-level event on the mcp plane, payload in `raw`, no corr_id.
+    const mcp = await readTape(result.files.mcpTape);
+    const events = mcp.filter((l) => (l as { kind?: string }).kind === 'fitness.synthesis');
+    expect(events).toHaveLength(1);
+    const event = events[0] as { dir?: string; raw?: { suiteHash?: string; generatorVersion?: string; dropsByRule?: unknown }; data?: unknown; corr_id?: string };
+    expect(event.dir).toBe('event');
+    expect(event.data).toBeUndefined();
+    expect(event.corr_id).toBeUndefined();
+    expect(event.raw?.suiteHash).toBe(result.report.run.suiteHash);
+    expect(event.raw?.generatorVersion).toBe('fitness-report-generator/2');
+
+    // Per-candidate screen verdicts are evidence too, correlated per task.
+    const screens = mcp.filter((l) => (l as { kind?: string }).kind === 'fitness.null_screen');
+    expect(screens).toHaveLength(10);
+    expect((screens[0] as { corr_id?: string }).corr_id).toMatch(/::screen$/);
+
+    // The disclosure is in METHODS, not buried in a log line.
+    expect(result.report.methods?.some((m) => m.includes('biased downward by construction'))).toBe(true);
+    expect(result.report.methods?.some((m) => m.includes('fitness-report-generator/2'))).toBe(true);
+  }, 120_000);
+
+  it('writes the synthesis ledger even when synthesis itself threw', async () => {
+    // v1 swallowed a synthesis failure into a note and wrote no suite file at
+    // all, so the run that most needed evidence produced the least.
+    const out = join(dir, 'synth-failed');
+    const exploding: ModelClient = {
+      ...stubClient({ taskCount: 10 }),
+      messages: {
+        async create(): Promise<Anthropic.Message> {
+          throw new Error('judge unreachable');
+        }
+      }
+    };
+    const result = await runPipeline(
+      { ...parseArgs(['run', canary.url]), out },
+      { anthropic: exploding, log: () => undefined }
+    );
+
+    expect(result.report.outcome).toBe('INDETERMINATE');
+    expect('score' in result.report).toBe(false);
+    expect(result.files.suiteMeta).not.toBeNull();
+    const meta = JSON.parse(await readFile(result.files.suiteMeta!, 'utf8')) as {
+      failure: { kind: string; message: string } | null;
+      yield: { candidates: number; admitted: number };
+    };
+    expect(meta.failure?.message).toContain('judge unreachable');
+    expect(meta.yield).toMatchObject({ candidates: 0, admitted: 0 });
+  }, 120_000);
+
   it('refuses below the minimum suite size and publishes no score', async () => {
     const out = join(dir, 'small');
     const result = await runPipeline(
@@ -357,6 +458,62 @@ describe('full pipeline against the canary', () => {
     const md = await readFile(result.files.reportMd, 'utf8');
     expect(md).toContain('## Result: REFUSED');
     expect(md).toContain('structural gate');
+  }, 120_000);
+
+  it('attributes a suite the null screen emptied to the screen, not to a thin surface', async () => {
+    // The bug this pins: `Ledger.refuse` keeps the FIRST gate, and structural
+    // always fails with `too_few_generated` before suite_size is evaluated
+    // whenever the admitted suite is under 8. So the reason the v2 generator
+    // exists to report, `all_candidates_null_answerable`, could never reach a
+    // published row: a server whose candidates were all answerable with no
+    // server at all published as INSUFFICIENT_SURFACE, which is a claim about
+    // its TOOL SURFACE and the opposite of what was measured.
+    const out = join(dir, 'null-answerable');
+    const base = stubClient({ taskCount: 10 });
+    const coldModelKnowsMost: ModelClient = {
+      ...base,
+      messages: {
+        async create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<Anthropic.Message> {
+          if (typeof params.system === 'string' && params.system.includes('You have no tools available')) {
+            // Seven of the ten candidates are answered correctly with no server
+            // at all, so the screen deletes them before the suite is hashed.
+            const asked = JSON.stringify(params.messages);
+            const known = /inv_100[0-6]\b/.test(asked);
+            return message(known ? 'Invoice status: open' : 'UNKNOWN');
+          }
+          return base.messages.create(params);
+        }
+      }
+    };
+
+    const result = await runPipeline(
+      { ...parseArgs(['run', canary.url]), out },
+      { anthropic: coldModelKnowsMost, log: () => undefined }
+    );
+
+    // The refusal lands on the gate that can explain it, with the outcome that
+    // names what happened.
+    expect(result.report.gates.refusedAt).toBe('suite_size');
+    expect(result.report.outcome).toBe('DEGENERATE');
+    expect('score' in result.report).toBe(false);
+
+    const sizeRecord = result.report.gates.records.find((r) => r.gate === 'suite_size');
+    expect(sizeRecord?.reason).toBe('all_candidates_null_answerable');
+    expect(sizeRecord?.detail).toMatchObject({ nTasks: 3, minTasks: 8, nullScreenDropped: 7, nullScreenScreened: 10 });
+    expect(String((sizeRecord?.detail as { attribution?: string }).attribution)).toContain('a model with no server');
+
+    // Structural still records its own failure, with the screen counts beside
+    // the numbers a reader would otherwise subtract into a wrong drop count.
+    const structuralRecord = result.report.gates.records.find((r) => r.gate === 'structural');
+    expect(structuralRecord?.ok).toBe(false);
+    expect(structuralRecord?.reason).toBe('too_few_generated');
+    expect(structuralRecord?.detail).toMatchObject({ nullScreenDropped: 7, nullScreenScreened: 10 });
+    const synthesis = (structuralRecord?.detail as { synthesis?: { dropsByRule?: Record<string, number> } }).synthesis;
+    expect(synthesis?.dropsByRule).toMatchObject({ null_screen: 7 });
+
+    const md = await readFile(result.files.reportMd, 'utf8');
+    expect(md).toContain('suite size gate');
+    expect(md).toContain('all_candidates_null_answerable');
   }, 120_000);
 
   it('runs the drive for evidence after a refusal without ever publishing a score', async () => {

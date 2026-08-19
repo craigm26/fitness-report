@@ -262,6 +262,17 @@ export interface FitnessReportJson {
     judgeModel: string;
     suiteHash: string;
     taskBudget: number;
+    // CONTRACT CHANGE (2026-08-19): the task generator's version is hashed into
+    // suiteHash but a hash cannot be compared or grouped on. Two generator
+    // versions produce two different denominators (v1 double-counted the repair
+    // pass; v2 counts candidates and screens the numerator), so rows from
+    // different generators must never be ranked in one table. That decision
+    // needs a field a consumer can key on, at the top level, next to the runner
+    // model it already refuses to rank across. Both are optional: v1 records
+    // published before this field existed stay readable.
+    generatorVersion?: string | null;
+    /** True when candidates answerable with no server were deleted pre-hash. */
+    nullScreenEnabled?: boolean;
   };
   probes: ProbeResults;
   gates: GateLedger;

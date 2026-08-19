@@ -217,6 +217,75 @@ h4 {
   color: var(--muted);
 }
 
+/* the thesis and the counts behind it, side by side at the top of the page */
+
+.thesis {
+  max-width: 30ch;
+  margin: 26px 0 0;
+  font-size: clamp(19px, 2.6vw, 26px);
+  font-weight: 620;
+  line-height: 1.25;
+  letter-spacing: -0.018em;
+  color: var(--text);
+  text-wrap: balance;
+}
+
+.stat-strip {
+  margin: 20px 0 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-strong);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 18px 26px;
+  margin: 0;
+}
+
+.stat {
+  border-left: 2px solid var(--line-strong);
+  padding-left: 12px;
+}
+
+.stat-label {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.stat-value {
+  display: block;
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: clamp(24px, 3vw, 32px);
+  font-weight: 620;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.stat-note {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.stat-strip-note {
+  margin: 16px 0 0;
+  max-width: 78ch;
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 3px solid var(--refuse);
+  padding-left: 14px;
+}
+
 /* --------------------------------------------------------------------------
    sections
    -------------------------------------------------------------------------- */
@@ -612,6 +681,21 @@ section {
   color: var(--muted);
 }
 
+/* the one measured comparison that made the refusal, small enough for a cell */
+
+.refusal-teaser {
+  margin-top: 7px;
+  padding: 4px 8px;
+  border: 1px solid var(--refuse);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-soft);
+  max-width: 30ch;
+}
+
 /* interval cell: the interval is the finding, so it gets the drawing */
 
 .interval {
@@ -819,6 +903,28 @@ section {
   color: var(--accent);
 }
 
+.toggle-refused {
+  border-color: var(--refuse);
+  color: var(--refuse);
+  font-weight: 600;
+}
+
+.toggle-refused:hover {
+  border-color: var(--refuse);
+  color: var(--refuse);
+  background: var(--refuse-soft);
+}
+
+.legend-key {
+  display: inline-block;
+  padding: 1px 7px;
+  border: 1px solid var(--refuse);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--refuse);
+  white-space: nowrap;
+}
+
 /* --------------------------------------------------------------------------
    detail panel
    -------------------------------------------------------------------------- */
@@ -846,6 +952,245 @@ section {
 
 .panel-block h4 + h4 {
   margin-top: 18px;
+}
+
+/* the refusal story: the panel block that says what the gate actually saw */
+
+.panel-refusal {
+  grid-column: 1 / -1;
+  border-left: 3px solid var(--refuse);
+  padding-left: 14px;
+}
+
+.refusal-lede {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 0 14px;
+  font-size: 13.5px;
+  color: var(--text-soft);
+}
+
+.refusal-lede-text {
+  font-weight: 600;
+}
+
+.story {
+  display: grid;
+  gap: 10px;
+  padding: 14px 0 0;
+  max-width: 92ch;
+}
+
+.story + .story {
+  margin-top: 16px;
+  border-top: 1px dashed var(--line-strong);
+}
+
+.story.is-secondary {
+  opacity: 0.92;
+}
+
+.story-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+  font-size: 11.5px;
+}
+
+.story-gate {
+  font-family: var(--mono);
+  font-weight: 640;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.story-tier,
+.story-role {
+  color: var(--muted);
+}
+
+.story-role {
+  font-style: italic;
+}
+
+.story-reason {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--refuse);
+}
+
+.story-headline {
+  margin: 0;
+  font-size: clamp(15px, 1.6vw, 17.5px);
+  line-height: 1.4;
+  font-weight: 560;
+  letter-spacing: -0.008em;
+  color: var(--text);
+  text-wrap: pretty;
+}
+
+.story-line {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.story-counts {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.story-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px 20px;
+  margin: 2px 0;
+  padding: 10px 0;
+  border-block: 1px solid var(--line);
+}
+
+.story-figures dt {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.story-figures dd {
+  margin: 1px 0 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.story-limitation,
+.story-explain {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-strong);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 9px 12px;
+}
+
+.story-limitation {
+  border-left-color: var(--refuse);
+}
+
+.story-limitation-tag,
+.story-explain-tag {
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.story-evidence {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.story-notes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+}
+
+/* comparison bars: decorative only, every value is written beside them */
+
+.meter {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.meter-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 26%) minmax(80px, 1fr) minmax(96px, auto);
+  align-items: center;
+  gap: 10px;
+}
+
+.meter-label {
+  font-size: 12px;
+  color: var(--text-soft);
+  overflow-wrap: anywhere;
+}
+
+.meter-track {
+  position: relative;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--track);
+}
+
+.meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--value, 0%);
+  min-width: 2px;
+  background: var(--unknown);
+  border-radius: 3px;
+}
+
+.meter-null .meter-fill {
+  background: var(--unknown);
+  opacity: 0.55;
+}
+
+.meter-worst .meter-fill {
+  background: var(--refuse);
+}
+
+.meter-agent .meter-fill {
+  background: var(--band);
+  opacity: 0.75;
+}
+
+.meter-threshold {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: var(--at, 0%);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  opacity: 0.75;
+}
+
+.meter-value {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: right;
+}
+
+.meter-caption {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
 }
 
 .panel-dl {
@@ -902,6 +1247,18 @@ section {
   font-size: 12px;
   color: var(--muted);
   max-width: 60ch;
+}
+
+/* report.methods, verbatim: the harness's own divergences and known biases */
+
+.methods-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--muted);
+  max-width: 78ch;
 }
 
 .finding-list,
@@ -1016,6 +1373,32 @@ section {
   gap: 16px;
 }
 
+.refusal-guide {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0 0;
+  max-width: 78ch;
+}
+
+.refusal-guide dt {
+  margin-top: 12px;
+  font-weight: 620;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.refusal-guide dd {
+  margin: 0;
+  padding-left: 14px;
+  border-left: 2px solid var(--line-strong);
+  font-size: 14.5px;
+  color: var(--text-soft);
+}
+
+.refusal-guide dd strong {
+  color: var(--text);
+}
+
 .divergences code {
   background: var(--surface-2);
   border: 1px solid var(--line);
@@ -1058,6 +1441,19 @@ section {
   .board td,
   .board thead th {
     padding: 11px 10px;
+  }
+
+  /* the bar is the redundant half of a meter row, so it is what gets dropped */
+  .meter-row {
+    grid-template-columns: 1fr auto;
+  }
+
+  .meter-track {
+    display: none;
+  }
+
+  .stat {
+    border-left-width: 3px;
   }
 }
 

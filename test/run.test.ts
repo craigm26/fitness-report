@@ -519,6 +519,25 @@ describe('report rendering', () => {
     expect(renderMarkdown(report)).not.toContain('—');
   });
 
+  it('puts the generator identity where a consumer can group on it', () => {
+    // The generator version is hashed into suiteHash, and a hash cannot be
+    // compared, banded or sorted. Two generators are two denominators, so the
+    // leaderboard has to be able to refuse to rank across them without digging
+    // through a gate record's nested synthesis ledger.
+    const report = buildReport({
+      ...base,
+      outcome: 'INSUFFICIENT_SURFACE',
+      generatorVersion: 'fitness-report-generator/2',
+      nullScreenEnabled: true
+    });
+    expect(report.run.generatorVersion).toBe('fitness-report-generator/2');
+    expect(report.run.nullScreenEnabled).toBe(true);
+    // Absent, not guessed, when the caller does not know it.
+    const unknown = buildReport({ ...base, outcome: 'INSUFFICIENT_SURFACE' });
+    expect('generatorVersion' in unknown.run).toBe(false);
+    expect('nullScreenEnabled' in unknown.run).toBe(false);
+  });
+
   it('refuses to build a semicolon-bearing viewer URL', () => {
     expect(viewerUrl('https://x.test/a;b.jsonl', 'https://x.test/c.jsonl')).toBeNull();
     expect(viewerUrl('https://x.test/a.jsonl', 'https://x.test/b.jsonl')).toContain('mcpreplay.dev');
