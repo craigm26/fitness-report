@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Methods and failure record</title>
+<meta name="description" content="What the Fitness Report harness measures, what it refuses to measure, where it diverges from the code it ported, and every defect found in it so far, published with the evidence a reader can check.">
+<meta name="color-scheme" content="light dark">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip" href="#failures">Skip to the failure record</a>
+
+<header class="masthead">
+  <div class="wrap">
+    <p class="eyebrow">fitness-report / 1</p>
+    <p class="wordmark">Fitness&nbsp;Report</p>
+    <h1 class="thesis">Methods, and the record of what went wrong.</h1>
+    <p class="thesis-count">26 entries in the failure record. 6 are open today.</p>
+    <p class="lede">
+      This product's entire claim is that it refuses to publish numbers it cannot support. A claim like
+      that is worth nothing unless the failures are published to the same standard as the findings, so
+      they are, on this page: what broke, what it would have caused, how it was caught, and the evidence
+      you can go read yourself.
+    </p>
+    <p class="m-back"><a href="index.html">Back to the board</a></p>
+  </div>
+</header>
+
+<main class="m-page">
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 1. WHAT IS MEASURED                                                 -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone" id="measures" aria-labelledby="measures-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="measures-heading">1. What the harness measures</h2>
+          <p class="section-note">And, just as importantly, the questions it declines to answer.</p>
+        </div>
+      </div>
+
+      <nav class="toc" aria-label="Page contents">
+        <ul>
+          <li><a href="#measures">1. What it measures</a></li>
+          <li><a href="#gates">2. The gates, in cost order</a></li>
+          <li><a href="#divergences">3. Two divergences from evalgate</a></li>
+          <li><a href="#extensions">4. The extension protocol</a></li>
+          <li><a href="#failures">5. The failure record</a></li>
+          <li><a href="#not-meaning">6. What the numbers do not mean</a></li>
+          <li><a href="#cost">7. Cost honesty</a></li>
+        </ul>
+      </nav>
+
+      <blockquote class="position">
+        <p>Conformance asks whether the server speaks MCP correctly. Fitness Report asks whether an agent
+        can actually get the job done with it.</p>
+      </blockquote>
+      <p class="position-note">
+        That first word belongs to the official suite at
+        <a href="https://github.com/modelcontextprotocol/conformance" rel="noopener noreferrer">github.com/modelcontextprotocol/conformance</a>.
+        It is a different project answering a different question, and nothing on this site is a substitute
+        for it. Run both.
+      </p>
+
+      <h3 class="m-sub" id="measures-what">What one scored run reports</h3>
+      <p>
+        A run drives one server version with one runner model against a task suite generated for that
+        server's own tool surface. Every task is machine checked. What comes out is a small, fixed set of
+        numbers, each of which is either a finite value or absent from the record entirely. There is no
+        NaN here, and no zero standing in for something unknown.
+      </p>
+      <ul class="m-list">
+        <li><strong>First-try success</strong>, as a count and a Wilson 95% interval. The interval is the
+          finding. The point estimate is drawn inside it and is not the result.</li>
+        <li><strong>Eventual success</strong>, the same task set counted after retries, so the gap between
+          the two is the cost of the server's first answer being wrong.</li>
+        <li><strong>Calls, tokens and dollars per completed task</strong>, netted of the fixed tool
+          definition overhead for the runner model.</li>
+        <li><strong>Per-tool failure attribution</strong>, by class: protocol error, execution error the
+          agent recovered from, fatal execution error, abandoned after too many clarification rounds, and
+          schema validation reject. The last of those is always a finding about the server and is never
+          attributed to the agent.</li>
+        <li><strong>Destructive calls with no confirmation in front of them.</strong> A tool is treated as
+          destructive unless it declares otherwise, because that is the spec default, and a confirmation
+          only clears a call when it names the same tool and lands before the call executes.</li>
+        <li><strong>Declared against inferred destructiveness</strong>, where the two disagree.</li>
+        <li><strong>Ambiguous parameter names</strong>, schema drift, and the tool surface delta by
+          credential where a second credential was available.</li>
+        <li><strong>Deterministic protocol probes</strong>, which cost zero tokens and run before anything
+          else, so even a refused run reports them.</li>
+        <li><strong>Credential context</strong>, stamped on every number: anonymous, free key or owner key.</li>
+      </ul>
+      <p class="m-note">
+        Every one of those fields is in
+        <a href="data/runs.json"><code>data/runs.json</code></a> for every published run, alongside the two
+        tapes the numbers were read from. Nothing on the board is stored anywhere else.
+      </p>
+
+      <h3 class="m-sub" id="measures-not">What it refuses to measure</h3>
+      <dl class="m-defs">
+        <dt>Whether the server is correct</dt>
+        <dd>Protocol probes are reported, and a failed probe is coloured as a fact about the server, but
+          this harness does not certify a server against the specification. The official suite does that.</dd>
+
+        <dt>Which model is better at using tools</dt>
+        <dd>The runner model is pinned into every score record and held constant inside a comparison. This
+          board is about servers.</dd>
+
+        <dt>Anything at all, when the eval itself is invalid</dt>
+        <dd>When a validity gate fails, the report carries no <code>score</code> field. Not null, not zero:
+          absent. The refusal is published in the slot a number would have occupied, with the failing gate,
+          its counts, its threshold, its alpha, its p-value and its reason string.</dd>
+
+        <dt>A ranking</dt>
+        <dd>No row on the board sits above another. At these sample sizes the intervals overlap, and an
+          order between overlapping intervals is decoration.</dd>
+
+        <dt>A dollar figure it cannot support</dt>
+        <dd>An unpriced model produces no number rather than a wrong one, and a figure known to be
+          incomplete is published as a floor and says why. See <a href="#cost">cost honesty</a>.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 2. THE GATES                                                        -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone" id="gates" aria-labelledby="gates-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="gates-heading">2. The gates, in cost order</h2>
+          <p class="section-note">Cheapest first, stopping at the first failure, so a broken eval never spends model budget.</p>
+        </div>
+      </div>
+
+      <p>
+        The gate names, cost tiers and order below are the ones written into every run record, in the
+        record's own words. You can read the whole ladder for any published run in
+        <a href="data/runs.json"><code>data/runs.json</code></a> under <code>gates.order</code> and
+        <code>gates.records</code>. Each rung says what it checks, what running it costs, and the thing
+        that matters most: whether a failure there is a statement about the server or a statement about
+        our own measurement.
+      </p>
+
+      <ol class="ladder">
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-measure">protocol_hygiene</span>
+            <span class="rung-cost">free / zero tokens</span>
+          </div>
+          <h3 class="rung-title">Deterministic protocol probes</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>The revision the connection actually negotiated, whether the server accepts an impossible
+                protocol version, whether a mismatched method or name header is rejected, whether the modern
+                server discovery method is implemented, whether cache hints are present and correctly
+                scoped, and the deprecation surface. A probe that does not apply to a connection is
+                reported as unknown and never folded into the pass count.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>Pure transport. No model is called, so this runs even on servers that will refuse
+                everything afterwards.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>Server.</strong> This gate is a reported column, never a refusal. The record says
+                so in its own note: a hygiene failure is a fact about the server, not evidence that the eval
+                is invalid. Five of the seven scored rows on the board carry a hygiene finding and are
+                scored anyway.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-hold">structural</span>
+            <span class="rung-cost">free / zero tokens</span>
+          </div>
+          <h3 class="rung-title">Did the generator produce a usable suite</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>How many candidates the generator emitted, how many survived admission, the admission rate
+                against a floor of 0.25, and an absolute minimum of 8 admitted candidates. Every rejection
+                is counted under the rule that produced it, and those counts are published on the row. The
+                per candidate ledger behind them is written to the run's suite metadata file, which is not
+                published; entry <a href="#f17">17</a> is what that costs.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>Nothing. It reads the generator's own ledger.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>The eval.</strong> Reason <code>no_cases_generated</code> means our generator
+                admitted nothing. It is not a statement about the server, and entry
+                <a href="#f03">03</a> in the failure record is what happens when that distinction is not
+                made loudly enough on the board.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-hold">answer_leak</span>
+            <span class="rung-cost">free / zero tokens</span>
+          </div>
+          <h3 class="rung-title">Does a task carry its own answer</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>The rendered prompt, with parameters bound from the wire, against the answer the check
+                expects. A leak found at generation time buys exactly one regeneration attempt; a leak
+                still present after that refuses the run.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>A string scan. The one regeneration attempt costs a judge call.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>The eval.</strong> A task that contains its answer measures nothing about the
+                server. This gate was blind for the entire first pass: entry <a href="#f04">04</a>.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-hold">suite_size</span>
+            <span class="rung-cost">free / zero tokens</span>
+          </div>
+          <h3 class="rung-title">Is there enough surface to say anything</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>Admitted tasks against a hard minimum of 8. The open server roster has a median of about
+                two and a half tools, so this fires often.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>Nothing.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>The eval.</strong> It publishes as <code>INSUFFICIENT_SURFACE</code>, which is a
+                refusal to score, not a verdict. A two-task suite at 100% is a worse outcome than an honest
+                refusal, so this floor does not move.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-hold">plan_power</span>
+            <span class="rung-cost">free / zero tokens</span>
+          </div>
+          <h3 class="rung-title">Is this sample big enough to resolve the question</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>The registered n against the sample size planned for the threshold and the detectable
+                rate, and the achieved power at the run's own n. Exact binomial power is sawtoothed in n,
+                so clearing the planned size is not the same claim as being powered at it.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>Nothing. It is arithmetic on the registered plan.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>The eval.</strong> Recorded as <code>underpowered_recorded</code> rather than
+                hidden, and carried into the published-pass rule in
+                <a href="#divergences">divergence 2</a>.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-hold">null_baseline</span>
+            <span class="rung-cost">cheap / three passes over the suite</span>
+          </div>
+          <h3 class="rung-title">Could a model pass this without the server</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>Three null models run the same suite: one with no tools at all, one whose tool calls come
+                back empty, and one calling tools with random valid arguments. The highest of the three is
+                the noise floor. If it reaches half the real signal or more, the suite is killed. An
+                indeterminate result halts exactly like a kill.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>Three passes over the suite at the runner model. Measured before any paid call: every
+                published record carries <code>measuredBeforePaidTier: true</code>. It is <em>decided</em>
+                later, because deciding needs a real signal to compare against, and the record names which
+                signal it used in <code>decidedAfter</code> and <code>signalSource</code>.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>The eval.</strong> When a model with no tools passes most of the suite, our tasks
+                were answerable from what the model already knew. It publishes as <code>DEGENERATE</code>.
+                Seven of the first pass's rows died here, and entry <a href="#f02">02</a> is the honest
+                reading of what those seven rows were actually about.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-hold">construct</span>
+            <span class="rung-cost">paid / one reference pass per task per rep</span>
+          </div>
+          <h3 class="rung-title">Can the answer be reached at all, through this server</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>A reference agent is handed the answer key and must still reach it, at a rate of at least
+                0.90, <em>through the server</em>. Reaching it is not enough on its own. The run also has to
+                show a successful tool call to an expected tool, because a substring or regex check on final
+                text can be satisfied with zero tool calls against a dead server.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>The first paid tier. One reference pass per task per registered rep, at the runner model,
+                plus the judge spend already sunk into generating the suite. Across the 13 published runs
+                that record judge usage, that synthesis cost ran from $0.2642 to $1.4495.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>Both are possible, and the record distinguishes them.</strong> When the reference
+                pass never reached the server, the record reads the tape and prints the counts: tool calls
+                recorded, calls that came back as errors, and requests that never received a matching
+                protocol response. A server that advertises tools and then rejects every invocation is a
+                finding about the server, stated from those counts and never assumed. Anything else is a
+                statement about our suite.</p>
+            </div>
+          </div>
+        </li>
+
+        <li class="rung">
+          <div class="rung-head">
+            <span class="code code-measure">the drive</span>
+            <span class="rung-cost">paid / the full run</span>
+          </div>
+          <h3 class="rung-title">The measurement itself</h3>
+          <div class="rung-grid">
+            <div class="rung-field">
+              <p class="field-label">Checks</p>
+              <p>Nothing. Every gate has already passed. This is the scored agent loop, recorded to two
+                tapes: the MCP wire plane and the agent plane.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">Costs</p>
+              <p>The bulk of the run. Every task carries a task budget, so a server that traps the agent
+                yields a clean unrecoverable-path datum instead of an unbounded bill.</p>
+            </div>
+            <div class="rung-field">
+              <p class="field-label">A failure here means</p>
+              <p><strong>Server.</strong> By this point the eval has been cleared four different ways, so a
+                task that fails on the drive is the measurement, not an error.</p>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 3. DIVERGENCES                                                      -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone" id="divergences" aria-labelledby="divergences-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="divergences-heading">3. Two divergences from evalgate</h2>
+          <p class="section-note">The gate math is ported. It differs in exactly two places, and both are ours to defend.</p>
+        </div>
+      </div>
+
+      <ol class="divergences">
+        <li>
+          <h4>Construct errors count in the denominator</h4>
+          <p>
+            evalgate shrinks the denominator when an oracle call throws. Three successes out of three
+            completed calls then reads as a perfect rate even when forty calls errored on the way, because
+            the forty were never counted. That is defensible for a local oracle and wrong for a flaky remote
+            server, which is every server on this board.
+          </p>
+          <p>
+            Here the errors are gated on their own: <code>errors / (n + errors) &gt; 0.05</code> resolves the
+            run to <code>COMPROMISED</code>. That is not a verdict about the server. It is a refusal to
+            score, because the measurement did not complete. The variance gate was also changed to catch
+            oracle exceptions, which evalgate's does not, and the structural gate was given a minimum
+            admission rate and a minimum absolute n, because evalgate passes on five generated cases out of
+            two hundred.
+          </p>
+        </li>
+        <li>
+          <h4>A published pass is symmetric with a published failure</h4>
+          <p>
+            A pass on the board additionally requires that the Wilson 95% lower bound sits at or above the
+            threshold, or that the run's own n achieves the planned power against the detectable rate.
+            Otherwise the verdict is downgraded to <code>EXTEND</code> and no pass is published.
+          </p>
+          <p>
+            The reason is symmetry, not caution. Failures on this board are published at full statistical
+            rigour, and a small sample that happens to land above the line is not evidence. Publishing the
+            lucky one while holding the unlucky one to a p-value would put a thumb on the scale in exactly
+            one direction. Because exact binomial power is sawtoothed in n, the test is run against the
+            run's actual n rather than against the planned size it cleared.
+          </p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 4. EXTENSIONS                                                       -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone" id="extensions" aria-labelledby="extensions-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="extensions-heading">4. The extension protocol</h2>
+          <p class="section-note">Fixed in code, reachable by no flag, because a budget that can be raised mid-run is optional stopping.</p>
+        </div>
+      </div>
+
+      <dl class="m-defs m-defs-tight">
+        <dt>Size</dt>
+        <dd>6 new tasks per extension.</dd>
+        <dt>Maximum</dt>
+        <dd>2 extensions per run.</dd>
+        <dt>Generation</dt>
+        <dd>The same generator at a derived seed, put through the same free gates and measured by the same
+          three null baselines as the registered suite, and run at the same reps.</dd>
+        <dt>Pooling</dt>
+        <dd>Successes and trials are pooled across the registered suite and every consumed extension, and
+          the three-outcome rule is re-applied to the pooled counts. Nothing is re-tested in isolation.</dd>
+        <dt>Resolution</dt>
+        <dd>After the last extension, a gate that is still unresolved resolves to <strong>FAIL</strong>, and
+          the run refuses as <code>GATE_FAILED</code>.</dd>
+      </dl>
+
+      <p>
+        The policy is registered into the run record before the first model call, so you can read what a
+        run had bought before it knew anything. In the source it is a frozen constant,
+        <code>EXTENSION_POLICY = Object.freeze({ extensionSize: 6, maxExtensions: 2 })</code>, and no flag,
+        option or environment variable reaches it. That is deliberate and it is the whole point: an
+        extension budget an operator could raise after seeing a verdict is optional stopping wearing a
+        constant's name. There is no path in this codebase that lets a run buy its way to a decisive
+        number.
+      </p>
+      <p>
+        A regenerated task suite is a new run under a new suite hash, never a retry of this one. Reruns are
+        published as separate attempts and an earlier run is never replaced or hidden, whatever its outcome
+        was.
+      </p>
+      <p class="m-note">
+        Verify: <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L98-L123" rel="noopener noreferrer"><code>src/cli.ts</code> lines 98 to 123</a>
+        for the constant and the doctrine comment,
+        <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L156-L200" rel="noopener noreferrer">lines 156 to 200</a>
+        for the full flag list, which contains no extension flag, and
+        <code>gates.extensionPolicy</code> on every row of <a href="data/runs.json"><code>data/runs.json</code></a>.
+      </p>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 5. THE FAILURE RECORD                                               -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone m-zone-failures" id="failures" aria-labelledby="failures-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="failures-heading">5. The failure record</h2>
+          <p class="section-note">Twenty-six entries covering this harness and the tooling under it: what broke, what nearly broke, and what is still open.</p>
+        </div>
+      </div>
+
+      <p>
+        Negative results and invalid environments are usually discarded, so every team pays to rediscover
+        them. That is the argument behind the operator's earlier FOIL project, which published its kills,
+        its gate failures, a retracted claim and its invalid environments as importable fixtures. This page
+        holds Fitness Report to the same standard, for a reason specific to this product: a harness whose
+        selling point is refusing to publish unsupported numbers has no business hiding the times it
+        published one anyway, or nearly did.
+      </p>
+
+      <div class="m-legend">
+        <p class="field-label">How to read a status</p>
+        <ul class="legend-list">
+          <li><span class="tag tag-fault">OPEN</span> Still true today.</li>
+          <li><span class="tag tag-ok">CLOSED</span> Was true, is fixed, and the fix is pinned by a test.</li>
+          <li><span class="tag tag-hold">CAUGHT EARLY</span> Found and closed before any published file or number carried it.</li>
+          <li><span class="tag tag-unknown">ON RECORD</span> A published fact or event that stands as published.</li>
+        </ul>
+      </div>
+
+      <div class="m-legend">
+        <p class="field-label">How to read the evidence</p>
+        <p class="legend-note">
+          This repository is public, so a commit hash or a file path here is a link you can follow.
+          Two things are not linkable and the entries say so rather than dressing it up. The
+          <code>runs/</code> directory is in <code>.gitignore</code>, so raw sweep artifacts are cited by
+          path without a link; where the same figure survives into the published record, the entry cites
+          <a href="data/runs.json"><code>data/runs.json</code></a> instead, which is on this origin and is
+          the file the board renders from. And two supporting repositories, mcp-tape and mcp-replay, are
+          private, so their entries cite a commit hash, a path and a test name as text. The one publicly
+          checkable artifact among them is mcp-tape 0.7.3 on npm, which is where the pairing fix shipped.
+        </p>
+      </div>
+
+      <!-- ============ GROUP A ============ -->
+      <h3 class="m-group" id="g-validity">Eval validity: did the harness measure what it says it measured</h3>
+
+      <article class="fail" id="f01">
+        <div class="fail-head">
+          <span class="fail-num">01</span>
+          <h4 class="fail-title">The first full pass scored nobody. Every server refused.</h4>
+          <span class="tag tag-unknown">ON RECORD</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What happened</p>
+            <p>
+              The first leaderboard covered the whole verified roster and earned zero scores. It published
+              16 rows across 14 distinct public servers, two of them driven twice, and not one row carried a
+              <code>score</code> field. The outcomes were 7 <code>DEGENERATE</code>, 8
+              <code>INSUFFICIENT_SURFACE</code> and 1 <code>GATE_FAILED</code> at the construct gate.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it means</p>
+            <p>
+              At the time this read as fourteen servers being hard to drive. It was not. Most of it was our
+              own task generator, and entries <a href="#f02">02</a> and <a href="#f03">03</a> are the
+              arithmetic. Publishing the zero anyway is the only reason those two entries can be written at
+              all: an eval that had quietly loosened a floor to get a number on the board would have had
+              nothing to go back and re-read.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/302a62e" rel="noopener noreferrer">302a62e</a>, "Leaderboard first pass: 14 public servers, 16 rows, zero scores earned"</li>
+              <li><span class="ev-kind">file</span> <a href="https://github.com/craigm26/fitness-report/blob/302a62e/site/data/runs.json" rel="noopener noreferrer">site/data/runs.json at 302a62e</a>, 16 rows, 14 distinct slugs, <code>score</code> absent from every one</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f02">
+        <div class="fail-head">
+          <span class="fail-num">02</span>
+          <h4 class="fail-title">Those refusals were mostly our generator, not the servers.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              Under the earlier generator a model with no server and no tools at all passed most of nearly every
+              suite. The published no-tools rates were: astro 12 of 12, context7 10 of 10, cloudflare docs 2
+              of 2, coingecko 11 of 12, hugging face 11 of 12, svelte 10 of 12, better auth 8 of 9, microsoft
+              learn 8 of 9, and aws knowledge 6 of 8. Under the null-hard generator the same null model passes zero on
+              every suite: 0 of 12, 0 of 10, 0 of 24.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              Seven of the fourteen first-pass servers now carry a scored row: gitmcp 12 of 12, exa 12 of
+              12, deepwiki 10 of 10, coingecko 11 of 12, convex 11 of 12, hugging face 22 of 24, svelte 9 of
+              12. Three of the seven earlier <code>DEGENERATE</code> verdicts and four of the seven earlier
+              <code>INSUFFICIENT_SURFACE</code> verdicts were our generator, published as verdicts about the
+              server. Admission recovered the same way: gitmcp admitted 2 of 12 under the earlier generator and 12 of 24 under
+              the null-hard one.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was caught</p>
+            <p>
+              By turning the generator null-hard and re-running the roster. The earlier rows were never deleted,
+              so the comparison exists. Every row on the board carries its generator version as a chip, and
+              rows built by different generators are never read against each other.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">file</span> <a href="https://github.com/craigm26/fitness-report/blob/302a62e/site/data/runs.json" rel="noopener noreferrer">site/data/runs.json at 302a62e</a>, nine rows with no generator version recorded carry a <code>null_baseline</code> record with the no-tools rates above</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, current: every row recorded as <code>fitness-report-generator/2</code> carries a no-tools rate of 0</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/7f3b606" rel="noopener noreferrer">7f3b606</a>, "Null-hard synthesis verified live: all three null models 0/12 on every the null-hard generator suite"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f03">
+        <div class="fail-head">
+          <span class="fail-num">03</span>
+          <h4 class="fail-title">A regex that does not compile in JavaScript destroyed half of every candidate generated after the first pass.</h4>
+          <span class="tag tag-fault">OPEN</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              Across the sixteen runs recorded as <code>fitness-report-generator/2</code>, 198 of 386 generated candidates were dropped with the rule
+              <code>invalid-check</code> and the detail "regex does not compile". Every one of them was a
+              <code>tool_result_matches</code> check. The generator instructions make that check kind
+              required whenever the answer lives in a tool result, and never state the regex dialect or the
+              JSON escaping the validator will apply. The validator then compiles with
+              <code>new RegExp(c.pattern)</code> and drops on any failure. There is no repair pass for an
+              invalid check; only an answer leak buys the one regeneration attempt.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              Three runs lost 24 of 24 candidates: microsoft learn, better auth, and the aws knowledge
+              attempt now on the board. Three more kept 1 of 24: cloudflare docs, context7 and vercel docs.
+              Astro kept 4 of 24. All seven of those runs are published right now as
+              <code>GATE_FAILED</code> or <code>INSUFFICIENT_SURFACE</code>, which reads on the board as a
+              statement about the server. Microsoft learn generated 9 usable tasks under the earlier generator and 0 under the null-hard one.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was caught</p>
+            <p>
+              By totalling the drop counts across the sweep after the roster was rebuilt. Those counts were
+              already being serialised into every published run, which is the only reason the number is
+              recoverable at all; the per candidate ledger behind them is not published, which is entry
+              <a href="#f17">17</a>. It is still open: the prompt and the validator still disagree about the
+              dialect, and nothing repairs an invalid check.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, sum <code>gates.records[structural].detail.synthesis.dropsByRule["invalid-check"]</code> over the sixteen the null-hard generator rows: 198, against 386 in the matching <code>yield.candidates</code></li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1198-L1202" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1198 to 1202</a>, the instruction that requires the check and states no dialect</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1581-L1584" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1581 to 1584</a>, the <code>new RegExp</code> compile and the drop</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f04">
+        <div class="fail-head">
+          <span class="fail-num">04</span>
+          <h4 class="fail-title">The answer-leak detector was blind to the wire shape, and published an empty leak list that looked clean.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The generation-time scan normalised task parameters with <code>Object.entries()</code> and kept
+              only string, number and boolean values. On the wire, <code>params</code> is an array of
+              <code>{name, value}</code> objects, so every value failed the type guard and the scan rendered
+              the task template with no bindings at all. It was checking a template, not a prompt.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              All 180 first-pass candidates, 12 requested across each of 15 sweep runs, went unchecked. Every
+              one of those runs recorded <code>answer_leak ok: true</code> with an empty leak list and no
+              regeneration attempted, and all 16 published rows carried the same empty record. An empty leak
+              list is indistinguishable from a clean bill of health, which is exactly what it looked like.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was caught</p>
+            <p>
+              While rewriting synthesis for the the null-hard generator generator. It is documented in the source as a proven the earlier generator
+              bug and pinned by two tests that assert the scan reads the rendered prompt and the wire shape.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1339-L1351" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1339 to 1351</a>, the bug documented in the past tense</li>
+              <li><span class="ev-kind">test</span> <code>test/synthesize.test.ts</code>: "checks the RENDERED prompt, not the template, and reads the WIRE shape of params"</li>
+              <li><span class="ev-kind">test</span> <code>test/synthesize.test.ts</code>: "binds params from the wire shape and the legacy record shape identically"</li>
+              <li><span class="ev-kind">file</span> <a href="https://github.com/craigm26/fitness-report/blob/302a62e/site/data/runs.json" rel="noopener noreferrer">site/data/runs.json at 302a62e</a>, all 16 rows carry the empty leak record</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/2836d72" rel="noopener noreferrer">2836d72</a>, the fix</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f05">
+        <div class="fail-head">
+          <span class="fail-num">05</span>
+          <h4 class="fail-title">The null gate killed our own first pipeline fixture, correctly.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The first integration fixture built its task suite on a bare "was the tool called" predicate.
+              A stubbed-empty null model satisfies that by definition, so the null baseline killed the
+              fixture as degenerate. The gate was right and the fixture was wrong.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              Nothing published, because it happened while the pipeline was being written. It is in the
+              record because it is the cheapest available proof that the gate bites, and because the rule it
+              produced now runs in production: a bare <code>tool_called</code> check is rejected at
+              generation with reason <code>check-too-permissive</code>, allowed only on a declared
+              error-path probe. Three published runs, coingecko, convex and hugging face, each record one
+              such drop.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">test</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/test/pipeline.test.ts#L57-L59" rel="noopener noreferrer">test/pipeline.test.ts lines 57 to 59</a>, the fixture builder's own note, "verified while writing this"</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1564-L1570" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1564 to 1570</a>, the production rule</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, one <code>check-too-permissive</code> drop on each of the coingecko the null-hard generator, convex the null-hard generator and hugging face rows recorded as <code>fitness-report-generator/2</code></li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f06">
+        <div class="fail-head">
+          <span class="fail-num">06</span>
+          <h4 class="fail-title">The paid construct gate is a tautology by construction.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What breaks, structurally</p>
+            <p>
+              The reference agent is handed the answer key. For a substring or regex check, that means the
+              check reads final text the agent could have produced from the key alone, with zero tool calls,
+              against a server that is entirely dead. Left alone, the first gate that costs real money
+              would pass on nothing at all.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              A paid gate that certifies a suite as constructible against a server that never answered. It
+              never happened. The reached-through-server requirement is present in the initial commit, and
+              the first scored row appears seven commits later, so no published row was ever produced by an
+              unguarded construct gate. The gate is stated as a tautology-by-construction in the methods
+              text of every report rather than presented as sound.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L1490-L1500" rel="noopener noreferrer">src/cli.ts lines 1490 to 1500</a>: <code>reachedThroughServer</code> requires an <code>ok</code> tool call to an expected tool, and the verdict is <code>run.outcome.success &amp;&amp; reachedThroughServer</code></li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/c5743b6" rel="noopener noreferrer">c5743b6</a>, the initial commit, already carries the guard at src/cli.ts lines 645 to 654; <code>src/gates/construct.ts</code> has only ever had this one commit</li>
+              <li><span class="ev-kind">test</span> <code>test/pipeline.test.ts</code>: "refuses at the construct gate when the reference pass never reached the server", driven by a client that quotes the answer key back</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f07">
+        <div class="fail-head">
+          <span class="fail-num">07</span>
+          <h4 class="fail-title">One confirmation cleared every later destructive call in the task, whatever tool it named.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              Confirmation evidence was keyed by task alone and tool-agnostically. A single clarification
+              round on any tool in a task marked every later destructive call in that task as confirmed.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              A recorded, unconfirmed money transfer publishing as "0 destructive calls with no confirmation
+              in front of them". That is the safety number on this board, and it would have read clean while
+              the tape showed the opposite. No scored row was ever produced under the broken keying: it was
+              caught and pinned in the initial build commit.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was fixed</p>
+            <p>
+              Evidence is now keyed three ways, by task and tool together, by tool, and by an explicit
+              unattributed bucket for evidence that names no tool. Clearing a call requires evidence that
+              names the same tool and lands before the call executes.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/score/metrics.ts#L267-L307" rel="noopener noreferrer">src/score/metrics.ts lines 267 to 307</a>, the defect in the past tense and the <code>ConfirmationEvidence</code> shape that replaced it</li>
+              <li><span class="ev-kind">test</span> <code>test/score.test.ts</code>: "does not let a confirmation about one tool clear a destructive call to another"</li>
+              <li><span class="ev-kind">test</span> <code>test/score.test.ts</code>: "accepts a same-tool confirmation event that lands before the call"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f08">
+        <div class="fail-head">
+          <span class="fail-num">08</span>
+          <h4 class="fail-title">An extension batch quietly deleted the tasks that would have refused the registered suite.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The same predicate ran on registered suites and on bought extension batches with opposite
+              consequences. A batch task that leaked its answer key, or shipped an unbound placeholder to an
+              agent, was counted into a dropped tally and deleted without a word. The identical defect
+              refused one run and silently shrank another, and the batch bought specifically to settle a
+              verdict was the one place the defect could hide.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              Sampling bias pointing in exactly one direction: toward resolving the gate. The rule now
+              splits by severity. An answer leak or a structural property violation inside a batch
+              <strong>refuses the whole run</strong>, and a refused batch is voided whole. An ordinary
+              admission failure, a duplicate or a null-screen deletion is dropped and said out loud.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Worth stating plainly</p>
+            <p>
+              The asymmetry was corrected inside the same commit that introduced the extension loop, and
+              when that loop first fired in production, on the hugging face null-hard run, both batches recorded
+              zero drops of any kind. So the fix has never been exercised outside its tests.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L522-L549" rel="noopener noreferrer">src/cli.ts lines 522 to 549</a>, the old behaviour in the past tense and the refuse-or-drop rule that replaced it</li>
+              <li><span class="ev-kind">test</span> <code>test/extension.test.ts</code>: "REFUSES on an answer key inside a batch, exactly as the registered suite does"; "REFUSES on a structural property violated inside a batch"; "DROPS an ordinary admission failure, and says so rather than refusing"; "REFUSES the run when a bought batch violates the structural property"</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/95706f8" rel="noopener noreferrer">95706f8</a>, the commit that introduced the loop and the correction together</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f09">
+        <div class="fail-head">
+          <span class="fail-num">09</span>
+          <h4 class="fail-title">Nothing stopped a bought batch from restating a task already in the pool.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              Extension task ids carry an <code>e&lt;index&gt;-</code> prefix, which makes every batch id
+              unique. Precisely because the prefix guarantees uniqueness, the id is useless as a duplicate
+              test, and nothing else was testing for one.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              A restated task inflating pooled n with a correlated trial, which is the one thing pooling
+              must not do. Deduplication now keys on task content, not on id.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Worth stating plainly</p>
+            <p>
+              Same as the entry above: fixed inside the commit that introduced the loop, and the one
+              production run that consumed extensions recorded duplicate drops of 0 in both batches. Pinned
+              by tests, unexercised in the field.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L585-L594" rel="noopener noreferrer">src/cli.ts lines 585 to 594</a>, and <code>taskContentKey</code></li>
+              <li><span class="ev-kind">test</span> <code>test/extension.test.ts</code>: "drops a batch task that restates one already in the pool"; "dedupes inside one batch too, not only against the pool"; "keys task identity on content, never on id"; "drops a batch task that restates a pooled task, and still consumes the extension"</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/95706f8" rel="noopener noreferrer">95706f8</a>, "Content level dedupe stops a restated task from inflating pooled n"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ GROUP B ============ -->
+      <h3 class="m-group" id="g-numbers">Published-number honesty: figures that were wrong, or would have been</h3>
+
+      <article class="fail" id="f10">
+        <div class="fail-head">
+          <span class="fail-num">10</span>
+          <h4 class="fail-title">"Total measured spend: $8.04" was not measured. $2.25 of it was a guess.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The first pass published a spend figure of $8.04 and called it measured. The ledger's fifteen
+              entries sum to $8.0361, of which $5.7861 is runner spend priced from recorded tokens. The
+              remaining $2.25 is fifteen copies of a flat $0.15 judge allowance, a constant in the sweep
+              script that was never a measurement of anything.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              A published number understating real spend, wearing the word "measured". When judge spend was
+              actually measured it came in at $0.421 on the first priced run. Recomputing the same fifteen
+              runs at the replacement constant gives about $12.09, roughly half again as much as the figure
+              that was published.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was caught and what changed</p>
+            <p>
+              By measuring it. Judge usage is now read from the run record instead of assumed, and this is
+              the concrete instance the floor labelling exists to prevent: a figure known to be incomplete is
+              published as a floor with the reason it is one, and never as a total.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/302a62e" rel="noopener noreferrer">302a62e</a>, the message that says "Total measured spend: $8.04"</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/302a62e/scripts/sweep-one.sh#L18" rel="noopener noreferrer">scripts/sweep-one.sh at 302a62e, line 18</a>: <code>OPUS_EST = 0.15 # synthesis allowance per run</code></li>
+              <li><span class="ev-kind">artifact</span> <code>runs/sweep/ledger.json</code>, first 15 entries, <code>estUsd</code> $8.0361 and <code>sonnetUsd</code> $5.7861. Not linkable: <code>runs/</code> is gitignored</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/a9fe8e9" rel="noopener noreferrer">a9fe8e9</a>, "the first measurement came in at $0.42 against a $0.15 guess"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f11">
+        <div class="fail-head">
+          <span class="fail-num">11</span>
+          <h4 class="fail-title">The flat judge allowance was nearly three times too low, so every reported total was understated.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The spend ledger priced judge synthesis at a flat $0.15 per run. Measurement replaced it with
+              $0.42, a factor of 2.8, and the replacement is itself labelled in the script as a guess rather
+              than a measurement.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              Every total resting on the old constant was too small. The thirteen runs that now record real
+              judge usage range from $0.2642 to $1.4495, with a median around $0.44, so the spread is far
+              wider than any single constant can represent.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was caught and what changed</p>
+            <p>
+              The ledger now reads <code>run.judgeUsage.estCostUsd</code> where the run recorded it and
+              stamps the entry as measured. Where it did not, the figure is a floor, and the board carries
+              that floor upward: if any run figure is a floor, the board total is a floor too.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/a9fe8e9" rel="noopener noreferrer">a9fe8e9</a>, the diff replacing the constant and reading measured usage</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, thirteen rows carry <code>judgeUsage.estCostUsd</code>, minimum $0.264189, maximum $1.449461</li>
+              <li><span class="ev-kind">test</span> <code>test/site.test.js</code>: "labels a partial judge block as a floor and says why"; "labels each published run by what its own record supports, floor or total"; "carries the floor up to the board figure whenever any run figure is one"; "states the spend as a floor and links to what sits outside it"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f12">
+        <div class="fail-head">
+          <span class="fail-num">12</span>
+          <h4 class="fail-title">A repair pass was counted as new candidates, inflating the denominator the structural gate tests.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The generator counted rewrites as additional candidates: <code>generated += rewrites.length</code>.
+              With 12 raw candidates and 4 rewrites the reported admission rate was 0.750 where the true rate
+              was 1.000, and that inflated denominator went straight into the structural gate's 0.25 floor.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              False admission-rate refusals: runs refused for a generator failure the generator did not
+              commit. It never reached a published number, and the reason is uncomfortable rather than
+              reassuring. Because the answer-leak detector in entry <a href="#f04">04</a> never fired, no
+              regeneration was ever attempted, so no repair pass ever ran and the double count never had
+              anything to double. One defect was masked by another.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/c5743b6/src/tasks/synthesize.ts#L1004" rel="noopener noreferrer">src/tasks/synthesize.ts at c5743b6, line 1004</a>: <code>generated += rewrites.length</code></li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L437-L447" rel="noopener noreferrer">src/tasks/synthesize.ts lines 437 to 447</a>, the worked 12-and-4 example</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L1249-L1254" rel="noopener noreferrer">src/cli.ts lines 1249 to 1254</a>, "would have refused runs the generator did not earn"</li>
+              <li><span class="ev-kind">test</span> <code>test/synthesize.test.ts</code>: "never counts a repair rewrite as a new candidate"; "reconciles every candidate into exactly one bucket"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f13">
+        <div class="fail-head">
+          <span class="fail-num">13</span>
+          <h4 class="fail-title">Per-tool failure classes were counted twice, so attribution would have read double.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The runner reports a terminal failure class and the tool it is attributable to for every failed
+              task. A class derived from the wire was then bumped a second time from the outcome, so a single
+              failure was attributed twice to the same tool.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              Published per-tool attribution at twice the real failure count, which is the column a server
+              author would act on. It was caught and pinned in the initial build commit, before any scored
+              row existed. The first row carrying any per-tool attribution appears seven commits later, so
+              no leaderboard row ever carried the doubled figure.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">test</span> <code>test/score.test.ts</code>: "never counts a failure class more times than the errors that produced it", which asserts the class sum never exceeds a tool's errors plus its terminal count</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/score/metrics.ts#L609" rel="noopener noreferrer">src/score/metrics.ts line 609</a>, the same note in the production path</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/c5743b6" rel="noopener noreferrer">c5743b6</a>, the only commit that introduces that test, so the broken state exists only in its rationale</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ GROUP C ============ -->
+      <h3 class="m-group" id="g-infra">Infrastructure and evidence: the record behind the numbers</h3>
+
+      <article class="fail" id="f14">
+        <div class="fail-head">
+          <span class="fail-num">14</span>
+          <h4 class="fail-title">Five published trace files hold more than one session, so a replay link serves frames from another run.</h4>
+          <span class="tag tag-fault">OPEN</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              Of the 33 trace directories on this origin, five carry more than one <code>meta</code> line,
+              meaning the published tape for one run also contains a different run. Counting meta lines
+              against the record count our own report claims for that run:
+            </p>
+            <div class="m-scroll" tabindex="0" role="region" aria-label="Published trace files holding more than one session">
+              <table class="m-table">
+                <caption class="sr-only">Published trace files holding more than one session</caption>
+                <thead>
+                  <tr><th scope="col">Published tape</th><th scope="col">Sessions</th><th scope="col">Lines in file</th><th scope="col">Records our report claims</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td><a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z/mcp.jsonl">aws knowledge, 16:59:20.891Z</a></td><td class="m-num">2</td><td class="m-num">274</td><td class="m-num">14</td></tr>
+                  <tr><td><a href="traces/gitmcp-io-2026-08-20T00-02-42-466Z/mcp.jsonl">gitmcp, 00:02:42.466Z</a></td><td class="m-num">3</td><td class="m-num">230</td><td class="m-num">204</td></tr>
+                  <tr><td><a href="traces/mcp-svelte-dev-2026-08-19T23-51-53-742Z/mcp.jsonl">svelte, 23:51:53.742Z</a></td><td class="m-num">3</td><td class="m-num">288</td><td class="m-num">258</td></tr>
+                  <tr><td><a href="traces/mcp-api-coingecko-com-2026-08-19T23-43-21-646Z/mcp.jsonl">coingecko, 23:43:21.646Z</a></td><td class="m-num">3</td><td class="m-num">222</td><td class="m-num">196</td></tr>
+                  <tr><td><a href="traces/mcp-vercel-com-2026-08-20T18-17-32-685Z/mcp.jsonl">vercel docs, 18:17:32.685Z</a></td><td class="m-num">2</td><td class="m-num">32</td><td class="m-num">17</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it causes</p>
+            <p>
+              On the aws knowledge row the published tape is 95 percent a different run. Attributing events
+              by session: session 0, started at 16:45:18.024Z and discarded, carries all 54
+              <code>fitness.http_error</code> events. Session 1, started at 16:59:20.891Z, is the run the
+              URL names, and it carries none of them and called no tool at all. A reader following the
+              replay link sees an evidence trail that belongs to a run we did not publish.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Status</p>
+            <p>
+              Open. This is precisely the multi-session shape mcp-tape 0.7.3 had to fix on the reading side
+              (entry <a href="#f22">22</a>), now occurring in our own published evidence on the writing
+              side.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">artifact</span> the five tapes linked in the table above, all served from this origin. Count <code>"type":"meta"</code> lines</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, the <code>trace_stats.session.records</code> block on each of those rows</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f15">
+        <div class="fail-head">
+          <span class="fail-num">15</span>
+          <h4 class="fail-title">The pinned tape oracle misreads our own published tapes, silently.</h4>
+          <span class="tag tag-fault">OPEN</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The design makes <code>npx mcp-tape stats &lt;file&gt; --json</code> the oracle that must parse
+              our tapes and agree with our own pairing counts. The pin is <code>^0.7.2</code> and the
+              installed binary reports 0.7.2, which predates both the session-scoped pairing and the
+              multiple-sessions-in-file warning added in 0.7.3.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it causes</p>
+            <p>
+              Run against the aws knowledge tape, the oracle returns <code>warnings: null</code>,
+              <code>startedAt 2026-08-20T16:45:18.024Z</code> which is the wrong run,
+              <code>durationMs 537243</code> spanning both runs, 274 records and 54 tool calls across four
+              aws tools. Our own <code>trace_stats</code> for that same run id says 16:59:20.891Z, 16
+              records and zero tools. The oracle and the report disagree by 260 records and 54 tool calls on
+              the same run, and the oracle raises nothing at all.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Status</p>
+            <p>
+              Open. The oracle is only an oracle if it is a version that can read what we write.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">reproduce</span> <code>npx mcp-tape@0.7.2 stats mcp.jsonl --json</code> against <a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z/mcp.jsonl">the published aws tape</a></li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/package.json" rel="noopener noreferrer">package.json</a>, <code>"mcp-tape": "^0.7.2"</code></li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, the <code>trace_stats</code> block on that row</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f16">
+        <div class="fail-head">
+          <span class="fail-num">16</span>
+          <h4 class="fail-title">The aws knowledge row on the board is the weaker attempt, and the strong-evidence run was left an orphan.</h4>
+          <span class="tag tag-fault">OPEN</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              One commit published the 16:45:18.024Z run as a construct-gate failure and described it
+              precisely: the reference agent completed 0 of 12 tasks, and the tape carries 54
+              <code>fitness.http_error</code> events, each naming the tool, the HTTP 400 status and the
+              gateway's own message. A later commit rebuilt the board and replaced that row with the
+              16:59:20.891Z run, a structural gate failure with 0 of 24 candidates admitted, which is a
+              refusal produced entirely inside our own generator by the regex defect in entry
+              <a href="#f03">03</a>.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it causes</p>
+            <p>
+              The published row's methods and gate ledger say nothing about the 54 HTTP 400s. The evidence
+              that actually indicts the server sits in a trace directory with no row pointing at it: 33
+              trace directories on this origin, 32 rows in <code>runs.json</code>, and that is the one
+              orphan. The board currently shows its weakest reading of that server while the stronger one is
+              published but unreferenced.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Status</p>
+            <p>
+              Open. The orphan tape stays published rather than being deleted, and it is linked here.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/ee131c1" rel="noopener noreferrer">ee131c1</a>, which published the 16:45 run and described the 54 events</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/757986b" rel="noopener noreferrer">757986b</a>, which rebuilt <code>site/data/runs.json</code> and replaced the row</li>
+              <li><span class="ev-kind">artifact</span> <a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z/mcp.jsonl">the orphaned 16:45 tape</a>, which carries the 54 <code>fitness.http_error</code> events</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f17">
+        <div class="fail-head">
+          <span class="fail-num">17</span>
+          <h4 class="fail-title">A refusal caused by the judge's own output cannot be defended from the published record.</h4>
+          <span class="tag tag-fault">OPEN</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The drop ledger records the check kind, the offending phrase, a prompt excerpt and a cold
+              answer excerpt. It has no field for the check's pattern. So the twenty-four drops on the
+              microsoft learn run read <code>{rule: invalid-check, detail: "regex does not compile"}</code>
+              twenty-four times with nothing in them to inspect.
+            </p>
+            <p>
+              It is thinner than that on the site. What every published row carries is the rule counts
+              alone, under <code>dropsByRule</code>, with <code>detail</code> reading "full ledger in
+              suite-meta.json". That file is under <code>runs/</code>, which is gitignored, so it is not
+              published anywhere. A reader who wants to check a refusal against the candidates that caused
+              it cannot, and the pattern they would most want to see is in neither file.
+            </p>
+            <p>
+              The agent plane does not fill the gap either, because it only holds runner turns. The gitmcp
+              the null-hard generator agent tape is 84 assistant turns from the runner model and 95 user turns, with zero turns
+              from the judge model. The microsoft learn the null-hard generator agent tape is exactly two lines, a meta and an
+              end, for a run whose entire outcome was decided by a judge call that appears nowhere.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it causes</p>
+            <p>
+              Seven currently published refusals rest on judge output that no recording contains. The
+              standing rule for this product is that every flag or finding must link to the recorded session
+              that justifies it. For those seven, no such recording exists, and the rule is not being met.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Status</p>
+            <p>
+              Open. It is the reason entry <a href="#f03">03</a> had to be reconstructed from drop totals
+              rather than read off a tape.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L380-L386" rel="noopener noreferrer">src/tasks/synthesize.ts lines 380 to 386</a>, the <code>DroppedTask</code> evidence shape with no pattern field</li>
+              <li><span class="ev-kind">artifact</span> <code>runs/sweep/gitmcp-docs-the null-hard generator/agent.jsonl</code> and <code>runs/sweep/microsoft-learn-the null-hard generator/agent.jsonl</code>. Not linkable: <code>runs/</code> is gitignored. The published agent tapes on this origin show the same shape</li>
+              <li><span class="ev-kind">design</span> <code>DESIGN.md</code>, the standing rule that every finding links to its recorded session</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f18">
+        <div class="fail-head">
+          <span class="fail-num">18</span>
+          <h4 class="fail-title">Redaction was scoped to the tapes, and the report is published too.</h4>
+          <span class="tag tag-hold">CAUGHT EARLY</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The design decision that introduced redaction scoped it to the published tape copy only. But
+              <code>report.json</code> and <code>report.md</code> are published as well, and the site's own
+              instructions tell the operator to append the report to
+              <a href="data/runs.json"><code>data/runs.json</code></a>, which is the file the board reads.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it would have caused</p>
+            <p>
+              A credential echoed back by a server reaching the public leaderboard through the one artifact
+              redaction was not covering. It never happened. A report-level redaction pass and the test that
+              proves it are both present in the initial commit, and <code>runs/</code> is gitignored so no
+              pre-fix artifact exists at all. The failure is documented in the code in the past tense and
+              never reached a published file.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/cli.ts#L2179-L2183" rel="noopener noreferrer">src/cli.ts lines 2179 to 2183</a>: "THE REPORT IS PUBLISHED TOO"</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tape/redact.ts#L349-L355" rel="noopener noreferrer">src/tape/redact.ts lines 349 to 355</a>: "Redaction that runs only on the tapes is redaction that does not run"</li>
+              <li><span class="ev-kind">test</span> <code>test/pipeline.test.ts</code>: "publishes no credential in report.json or report.md, only in neither tape", which asserts all three artifacts lack the token and that the report still records that a credential was presented, marked redacted</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/c5743b6" rel="noopener noreferrer">c5743b6</a>, which already carries both</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f19">
+        <div class="fail-head">
+          <span class="fail-num">19</span>
+          <h4 class="fail-title">Adaptive thinking ate the entire token ceiling, and synthesis failed three times in a row against real servers.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              On the judge call, adaptive thinking consumed the whole output budget before any text block
+              existed. The response came back with <code>stop_reason: max_tokens</code> and nothing to parse.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              Three consecutive live synthesis failures against real servers, inside seven minutes. Only one
+              of the three carries the message "judge returned no text"; the other two read "judge response
+              contained no task JSON", which is the truncated-output path of the same exhaustion through a
+              different throw site. Stating that precisely matters, because looking for one message would
+              have found one third of the incident.
+            </p>
+            <div class="m-scroll" tabindex="0" role="region" aria-label="The three consecutive synthesis failures">
+              <table class="m-table">
+                <caption class="sr-only">The three consecutive synthesis failures</caption>
+                <thead>
+                  <tr><th scope="col">Run</th><th scope="col">Time</th><th scope="col">Recorded message</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>coingecko the null-hard generator</td><td class="m-num">2026-08-19T23:30:59.192Z</td><td>judge returned no text</td></tr>
+                  <tr><td>svelte the null-hard generator</td><td class="m-num">23:34:29.203Z</td><td>judge response contained no task JSON</td></tr>
+                  <tr><td>gitmcp docs the null-hard generator</td><td class="m-num">23:37:55.597Z</td><td>judge response contained no task JSON</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was fixed</p>
+            <p>
+              The output ceiling was raised from 16000 to 32000 tokens and a thinking-off retry was added,
+              committed at 2026-08-19T23:40:47Z. Raising that ceiling is what caused entry
+              <a href="#f20">20</a>, eighteen seconds later.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/1b5309f" rel="noopener noreferrer">1b5309f</a>, which raises the ceiling and records the live observation</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1446-L1452" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1446 to 1452</a></li>
+              <li><span class="ev-kind">artifact</span> two of the three tapes are published on this origin: <a href="traces/mcp-api-coingecko-com-2026-08-19T23-43-21-646Z/mcp.jsonl">coingecko</a> and <a href="traces/mcp-svelte-dev-2026-08-19T23-51-53-742Z/mcp.jsonl">svelte</a></li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f20">
+        <div class="fail-head">
+          <span class="fail-num">20</span>
+          <h4 class="fail-title">The fix for the entry above broke synthesis again: the SDK refuses a non-streaming call at that ceiling.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The Anthropic SDK refuses a non-streaming <code>create</code> when <code>max_tokens</code>
+              implies the request may exceed ten minutes. At 32000 output tokens on the judge model, that
+              guard fires.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              The same three runs broke again, this time inside 19 seconds of each other, all with
+              "Streaming is required for operations that may take longer than 10 minutes": coingecko the null-hard generator at
+              2026-08-19T23:41:05.576Z, svelte the null-hard generator at 23:41:08.758Z, gitmcp docs the null-hard generator at 23:41:24.017Z. The
+              first of them is eighteen seconds after the previous fix was committed. The streaming fix
+              landed at 23:43:17Z, under two minutes after the last of them.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Worth stating plainly</p>
+            <p>
+              The 32k ceiling raised in entry <a href="#f19">19</a> is what tripped this guard. The fix for
+              one failure directly caused the next one. Both are in this record at the same weight rather
+              than being folded into a single tidy story about judge reliability.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/5842abc" rel="noopener noreferrer">5842abc</a>, which adds the optional streaming surface and routes both judge call sites through it</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L215-L221" rel="noopener noreferrer">src/tasks/synthesize.ts lines 215 to 221</a>, the guard described as observed live</li>
+              <li><span class="ev-kind">artifact</span> the same two published tapes as entry <a href="#f19">19</a> carry the failure events</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f21">
+        <div class="fail-head">
+          <span class="fail-num">21</span>
+          <h4 class="fail-title">One roster run failed on a transient API overload and was rerun.</h4>
+          <span class="tag tag-unknown">ON RECORD</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What happened</p>
+            <p>
+              The vercel docs run started at 2026-08-20T18:14:30.352Z recorded a synthesis failure at
+              18:16:32.938Z with <code>{"type": "overloaded_error", "message": "Overloaded"}</code> and a
+              yield of 0 candidates emitted. It was rerun a minute later, and that second attempt is the row
+              on the board.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Why it is in the record</p>
+            <p>
+              Because a rerun after a failure is exactly the shape of an operation that can quietly become
+              best-of-n. It is the only overload in the whole history, the failed attempt is a transport
+              fault rather than a result, and the rerun is published as its own row with its own suite hash.
+              It is on the record so that the one time it happened is visible rather than inferable.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">artifact</span> <a href="traces/mcp-vercel-com-2026-08-20T18-17-32-685Z/mcp.jsonl">the published vercel tape</a>, which carries the <code>fitness.synthesis</code> failure event with request id <code>req_011CeETPg65M4A1G2D5MN8Uo</code></li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, the published row <code>mcp-vercel-com-2026-08-20T18-17-32-685Z</code>, <code>INSUFFICIENT_SURFACE</code> with 1 admissible task of 24</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f22">
+        <div class="fail-head">
+          <span class="fail-num">22</span>
+          <h4 class="fail-title">In mcp-tape, the stats CLI paired requests across sessions and published a latency describing no call that ever happened.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              A JSON-RPC id is unique per connection and per session, never globally. The CLI keyed pairs on
+              the bare id while the web viewer keyed on source, session and id together. A tape holding more
+              than one session could therefore pair one session's request with another session's response.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              An orphaned request in run 1 paired against run 2's response, and the report carried a latency
+              spanning the gap between the two runs: a number describing no call that ever happened. The
+              pairing statistics in this harness are ported from that same module, and the multi-session
+              tapes in entry <a href="#f14">14</a> are the shape that triggers it.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was fixed</p>
+            <p>
+              Pairing now keys on source, session and id, matching the viewer. An unpaired request reports
+              no latency at all rather than a fabricated one: no response seen is not applicable, never a
+              number.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">package</span> <code>mcp-tape@0.7.3</code> on npm, the release the fix shipped in. This is the publicly checkable artifact for this entry</li>
+              <li><span class="ev-kind">commit</span> <code>862915f</code> in mcp-tape, "0.7.3: session-scoped pairing keys, multi-file stats, caller-supplied timestamps and paths". Repository not public</li>
+              <li><span class="ev-kind">source</span> mcp-tape <code>src/stats-model.ts</code> lines 31 to 42, which name the pre-0.7.3 keying in the past tense</li>
+              <li><span class="ev-kind">test</span> <code>test/stats-model.test.mjs</code>: "an orphaned request does not pair with the next session reusing its id"; "turn tool_use ids are session-scoped too"; "the id-only fallback relaxes source, never the session boundary"; "a tool error in one session is not suppressed by the next reusing its id"</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f23">
+        <div class="fail-head">
+          <span class="fail-num">23</span>
+          <h4 class="fail-title">That pairing fix needed a second pass. The first cut still cross-paired.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The first cut of the 0.7.3 fix keyed on source alone. Two producers could no longer collide,
+              but an orphaned request in one session still cross-paired against a later session's response
+              in the same source, which is the exact case the fix existed for.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Why it is in the record</p>
+            <p>
+              Because the interesting failure is not the original bug, it is that a fix which looked correct
+              and passed its new tests did not close the case. The two stages are still visible as two test
+              blocks: source-scoping first, then session-scoping added afterward.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> mcp-tape <code>src/stats-model.ts</code> lines 39 to 42, which name the intermediate state in the past tense. Repository not public</li>
+              <li><span class="ev-kind">test</span> <code>test/stats-model.test.mjs</code>: the source-scoping block, "two sources reusing id 1 do not cross-pair" and "turn tool_use ids are source-scoped too", then the later session-scoping block</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f24">
+        <div class="fail-head">
+          <span class="fail-num">24</span>
+          <h4 class="fail-title">The deployed mcp-replay share worker was missing a redaction rule, and the test proving it was already failing in a suite nothing ran.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              mcp-tape added a rule matching Google API keys on 2026-07-31. The share worker vendored the
+              ruleset and kept shipping the version without it, so a Google API key posted to the public
+              share endpoint would have been stored unredacted. A drift test existed, it compared the
+              worker's ruleset against the upstream file, and it was already failing on exactly that missing
+              pattern.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it caused</p>
+            <p>
+              Reproduced end to end: running the pre-fix worker's redaction over a correctly shaped
+              39-character key in a neutral field stores it verbatim; the post-fix worker returns
+              <code>[REDACTED]</code>. The gap stood on the deployed worker for about 19 days, from
+              2026-07-31 until the fix. The failing test never ran because the default
+              <code>npm test</code> globs one directory and the share worker's suite lives in another.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">commit</span> mcp-tape <code>0a4f0ef</code>, "fix(redact): match Google AIza API keys", pattern <code>\bAIza[0-9A-Za-z_-]{35}\b</code> in <code>default-redact.json</code>. Repository not public</li>
+              <li><span class="ev-kind">commit</span> mcp-replay <code>6a0228b</code>, the fix; the parent commit's <code>share-worker/src/redact.mjs</code> contains no such pattern. Repository not public</li>
+              <li><span class="ev-kind">test</span> <code>share-worker/test/redact.test.mjs</code>: "ruleset stays in sync with mcp-tape default-redact.json (drift test)", failing at the parent commit, diffing on exactly the missing pattern</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <article class="fail" id="f25">
+        <div class="fail-head">
+          <span class="fail-num">25</span>
+          <h4 class="fail-title">That fix closed the rule gap and not the structural one: the default test command still does not run that suite.</h4>
+          <span class="tag tag-fault">OPEN</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <p>
+              The fixing commit's message says the test sat in a suite the default <code>npm test</code>
+              never ran, and that both are fixed. The commit does not touch <code>package.json</code>. The
+              test script is still <code>node --test test/*.test.mjs</code>, which globs one directory and
+              matches nothing under the share worker's own test directory.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What it causes</p>
+            <p>
+              What the fix actually added is a never-skipping checksum test <em>inside</em> the share
+              worker's own suite, reachable only by running that suite directly. With no continuous
+              integration in this organisation by standing policy, a future drift in the deployed worker's
+              rules still has nothing running against it by default. The same class of gap that produced
+              entry <a href="#f24">24</a> is still open.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> mcp-replay <code>package.json</code> line 15, still <code>"test": "node --test test/*.test.mjs"</code>. Repository not public</li>
+              <li><span class="ev-kind">commit</span> mcp-replay <code>6a0228b</code>, whose message claims the structural fix and whose diff does not contain it</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+      <!-- ============ GROUP D ============ -->
+      <h3 class="m-group" id="g-presentation">Presentation: the page you are reading this on</h3>
+
+      <article class="fail" id="f26">
+        <div class="fail-head">
+          <span class="fail-num">26</span>
+          <h4 class="fail-title">Four defects in the leaderboard stylesheet, and three published measurements withdrawn.</h4>
+          <span class="tag tag-ok">CLOSED</span>
+        </div>
+        <div class="fail-body">
+          <div class="fail-field">
+            <p class="field-label">What broke</p>
+            <ol class="m-numlist">
+              <li>
+                <strong>A specificity leak.</strong> The board's own header rule
+                <code>.board thead th</code> has higher specificity than <code>.panel-table th</code>, and
+                the panel tables were rendered into the board's own table body, so the board's header rules
+                matched the nested panel headers through the descendant combinator and applied
+                <code>white-space: nowrap</code> to them. The result was a table forced far wider than its
+                container.
+              </li>
+              <li>
+                <strong>The sticky table header never stuck, at any viewport.</strong> Setting
+                <code>overflow-x: auto</code> on the scroller makes the used value of
+                <code>overflow-y</code> auto as well, so the sticky header resolved against a container
+                with no height constraint.
+              </li>
+              <li>
+                <strong>The phone layout was sized against a desktop-width table.</strong> The board carried
+                <code>min-width: 1080px</code> inside that scroller, so every narrow-viewport rule was
+                written against a width no phone has.
+              </li>
+              <li>
+                <strong>A colour token failed small-text contrast in both themes.</strong> The faint token
+                was used in fourteen places, including 11px table headers, and computed against the
+                surfaces it actually sat on it gave 2.96:1 to 3.26:1 in light and 3.98:1 to 4.32:1 in dark.
+                Both are below the 4.5:1 needed for small text.
+              </li>
+            </ol>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">The retraction</p>
+            <p>
+              The commit that fixed these published two pixel measurements, an 811px table and a 358px
+              track. The 453px of overflow quoted alongside them is arithmetic on those two, performed
+              here rather than measured there. All of it came from a browser measurement pass and none of
+              it is reproducible from anything in the repository, because no test anywhere in it measures
+              rendered geometry.
+              <strong>All three figures are withdrawn.</strong> The four mechanisms above are all verifiable
+              in the pre-fix stylesheet, so those are what this record publishes; the numbers will come back
+              only if they are re-measured.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Evidence</p>
+            <ul class="ev-list">
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/ee131c1/site/style.css#L442-L458" rel="noopener noreferrer">site/style.css before the fix, lines 442 to 458</a>, the scroller, the board min-width and the board header rule</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/ee131c1/site/app.js" rel="noopener noreferrer">site/app.js before the fix</a>, where the panel tables are rendered into the board's own table body</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/757986b" rel="noopener noreferrer">757986b</a>, the fix, and the commit message carrying the three withdrawn figures</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 6. WHAT THE NUMBERS DO NOT MEAN                                     -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone" id="not-meaning" aria-labelledby="not-meaning-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="not-meaning-heading">6. What the numbers do not mean</h2>
+          <p class="section-note">Three readings the board does not support, stated before someone makes them.</p>
+        </div>
+      </div>
+
+      <div class="caveats">
+        <div class="caveat">
+          <h3 class="caveat-title">Intervals that overlap are not a ranking</h3>
+          <p>
+            First-try success is drawn as a Wilson 95% interval on a shared axis. A row would only sit below
+            another if that other interval lay entirely above it, and on the published runs no pair is
+            separated that way. So the board prints no positions at all. Two rows at 12 of 12 and 9 of 12 at
+            these sample sizes are not distinguishable, and reading them as first and second place is
+            reading noise.
+          </p>
+        </div>
+        <div class="caveat">
+          <h3 class="caveat-title">Runs under different generator versions or runner models are not comparable</h3>
+          <p>
+            Every row carries its task generator as a chip. A the earlier generator row and a the null-hard generator row of the same server are two
+            different measurements, and entry <a href="#f02">02</a> is exactly how far apart they can be:
+            the same server, the same tools, a null model passing 10 of 12 under one generator and 0 of 12
+            under the next. The runner model is pinned into every score record for the same reason. Token
+            accounting is not comparable across tokenizers, so two servers driven by different runner models
+            are reported side by side and never read against each other.
+          </p>
+          <p>
+            The generation-time null screen adds a bias in one known direction and it is stated rather than
+            buried: on a screened suite the run-time null baseline measures the noise floor of a suite that
+            was already purged of the tasks that gate looks for, so it reads lower than it would on an
+            unscreened suite. Every row prints which it is.
+          </p>
+        </div>
+        <div class="caveat">
+          <h3 class="caveat-title">A refusal is not a verdict on the server unless the gate says so</h3>
+          <p>
+            <code>DEGENERATE</code>, <code>INSUFFICIENT_SURFACE</code> and a structural
+            <code>GATE_FAILED</code> are statements about our own eval. They mean our generator did not
+            produce a suite worth driving. Entries <a href="#f02">02</a> and <a href="#f03">03</a> are the
+            proof that this distinction is not academic: fourteen currently published refusals across the
+            two of them are our generator, published in the slot where a reader looks for a fact about the
+            server. Seven are rows with no generator version recorded, seven are rows recorded as <code>fitness-report-generator/2</code>, and all fourteen are still on the board.
+          </p>
+          <p>
+            The one refusal that can carry a server finding is the construct gate, and only when the record
+            reads it off the tape: tool calls recorded, calls returned as errors, requests with no matching
+            response. When it says that, it says it from the counts. When it does not, it does not.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------------ -->
+  <!-- 7. COST HONESTY                                                     -->
+  <!-- ------------------------------------------------------------------ -->
+  <section class="m-zone" id="cost" aria-labelledby="cost-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="cost-heading">7. Cost honesty</h2>
+          <p class="section-note">Measured per phase and per model, published as a floor when anything is missing, and withheld entirely when nothing supports it.</p>
+        </div>
+      </div>
+
+      <p>
+        Every run uses two models. The runner drives the server and its turns are on the agent tape, so its
+        tokens are counted and priced from the record. The judge synthesises the task suite and produces the
+        destructiveness signal before the drive begins, and it writes to neither tape. A total summed from
+        the tapes alone is therefore the runner's spend, not the run's, and entry
+        <a href="#f10">10</a> is what happens when that difference is papered over with a constant.
+      </p>
+
+      <dl class="m-defs">
+        <dt>Measured per phase and per model</dt>
+        <dd>
+          Judge usage is read from the run's own record, per model, with calls, input tokens, output tokens
+          and cache tokens broken out. Thirteen published runs carry it, ranging from $0.2642 to $1.4495
+          with a median around $0.44. Runner spend is priced from recorded tokens at the pinned model's
+          price. Nothing is derived from a per-run assumption.
+        </dd>
+
+        <dt>A floor is labelled a floor</dt>
+        <dd>
+          A figure is called a total only when nothing known is missing from it. Every other figure is
+          printed as <em>at least</em>, with the reason it is one, and the reasons come from the record:
+          judge usage the harness marked partial, a judge model in the breakdown with no price on file,
+          judge calls that returned no usage block, calls that threw before reporting any, and the same on
+          the tape side. Each of those means dollars were spent that are not in the number. A floor printed
+          as a total is a wrong figure wearing a right label.
+        </dd>
+
+        <dt>A floor propagates upward</dt>
+        <dd>
+          If any run figure on the board is a floor, the board figure is a floor. It is not averaged away
+          and it is not rounded into confidence.
+        </dd>
+
+        <dt>An unpriced model yields no number</dt>
+        <dd>
+          Pricing fails closed. A model on a tape with no price on file produces no cost figure at all
+          rather than a wrong one, and the record says why the figure is absent. Every new model needs an
+          explicit price entry before its runs can carry dollars.
+        </dd>
+
+        <dt>What is named without a number</dt>
+        <dd>
+          Judge spend on runs that do not record it, the generation-time null screen calls that are written
+          to neither plane, and any model on a tape with no price on file. Each is named on the board
+          without a figure attached, because naming what sits outside a number is part of publishing the
+          number.
+        </dd>
+      </dl>
+
+      <p class="m-note">
+        Verify: <code>judgeUsage</code> on any row of <a href="data/runs.json"><code>data/runs.json</code></a>,
+        and the floor labelling pinned by four tests in <code>test/site.test.js</code>: "labels a partial
+        judge block as a floor and says why", "labels each published run by what its own record supports,
+        floor or total", "carries the floor up to the board figure whenever any run figure is one", and
+        "states the spend as a floor and links to what sits outside it".
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <p class="issuing">
+      <span class="issuing-label">Issued from</span>
+      <a href="data/runs.json"><code>data/runs.json</code></a>
+      <span class="issuing-sep" aria-hidden="true">/</span>
+      <span><a href="https://github.com/craigm26/fitness-report" rel="noopener noreferrer">github.com/craigm26/fitness-report</a></span>
+    </p>
+    <p>
+      Prior art: MCPEval for model-driven task synthesis with machine-checkable predicates, evalgate for the
+      validity gate math, mcp-tape for the tape format and pairing statistics. The model for this page is
+      the operator's earlier FOIL project, which published its kills, its gate failures, a retracted claim
+      and its invalid environments rather than discarding them.
+    </p>
+    <p>
+      <a href="index.html">Back to the board</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

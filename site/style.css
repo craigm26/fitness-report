@@ -29,7 +29,11 @@
  * against every surface it is used on, in both themes. --ink-faint is used only
  * on --paper and --record, where it measures 4.7:1 or better, and never on a
  * wash. --rule is a hairline; the axis and focus rings use --rule-strong, which
- * clears 3:1 in both themes.
+ * clears 3:1 in both themes. --frame-rule is the eighth derived tint and the
+ * only one that carries meaning on its own: it is the edge of a link that opens
+ * a recording on one finding's frames rather than on the whole session, so it
+ * is mixed to clear 3:1 against --record, --paper and --measure-wash in both
+ * themes rather than sitting at hairline weight like --rule.
  *
  * TYPE. Three roles, three jobs. The display face is a monospace at 700, which
  * keeps the page's whole typographic argument inside the register of recorded
@@ -73,6 +77,8 @@
   --fault-wash: color-mix(in oklab, var(--fault) 12%, var(--record));
   --mark: #e8ebea;
   --mark: color-mix(in oklab, var(--ink) 5%, var(--paper));
+  --frame-rule: #578d8e;
+  --frame-rule: color-mix(in oklab, var(--measure) 60%, var(--rule));
   --scrim: rgba(18, 24, 26, 0.45);
   --scrim: color-mix(in oklab, var(--ink) 45%, transparent);
 
@@ -116,6 +122,8 @@
     --fault-wash: color-mix(in oklab, var(--fault) 12%, var(--record));
     --mark: #171b1c;
     --mark: color-mix(in oklab, var(--ink) 5%, var(--paper));
+    --frame-rule: #45928c;
+    --frame-rule: color-mix(in oklab, var(--measure) 60%, var(--rule));
     --scrim: rgba(0, 0, 0, 0.6);
     --scrim: color-mix(in oklab, #000000 60%, transparent);
 
@@ -146,6 +154,8 @@
   --fault-wash: color-mix(in oklab, var(--fault) 12%, var(--record));
   --mark: #171b1c;
   --mark: color-mix(in oklab, var(--ink) 5%, var(--paper));
+  --frame-rule: #45928c;
+  --frame-rule: color-mix(in oklab, var(--measure) 60%, var(--rule));
   --scrim: rgba(0, 0, 0, 0.6);
   --scrim: color-mix(in oklab, #000000 60%, transparent);
 
@@ -1802,6 +1812,79 @@ a:hover {
   border-style: dashed;
 }
 
+/* ---------------------------------------------------------------------------
+   deep links: a finding that opens on its own frames
+   ---------------------------------------------------------------------------
+
+   A focused evidence link opens the recording on one correlation id rather than
+   on the whole session, and a reader cannot be expected to infer that from a
+   fragment they never see. So the difference is carried in the mark, not in the
+   href: a focused link wears a small "its frames" pill and a filled ground, an
+   unfocused one stays the plain outline it has always been. The legend at the
+   top of the record says what the pill means, and it is only printed on records
+   that have one to show.
+
+   Both states keep the same 44px target. A deep link is the most useful link on
+   the page and it is not allowed to be the smallest.
+   --------------------------------------------------------------------------- */
+
+.evidence.is-focused {
+  background: var(--measure-wash);
+  border-color: var(--frame-rule);
+}
+
+.evidence.is-focused:hover {
+  border-color: var(--measure);
+}
+
+.evidence-mark {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--measure);
+  border: 1px solid var(--frame-rule);
+  border-radius: 2px;
+}
+
+/* Several tasks behind one finding wrap as a set, each its own target. */
+.frame-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  vertical-align: top;
+}
+
+.frame-links .evidence {
+  margin-left: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.record-legend {
+  margin-top: 12px;
+  padding-left: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-quiet);
+  border-left: 2px solid var(--frame-rule);
+}
+
+/* A task row carries the id the tapes are stamped with, so it reads as data. */
+.task-id {
+  color: var(--ink);
+}
+
+.panel-table tr.is-fault-row td {
+  background: var(--fault-wash);
+}
+
 .trace-list > li {
   padding: 8px 0;
   border-top: 1px solid var(--rule);
@@ -2144,4 +2227,556 @@ a:hover {
 
 .issuing-sep {
   color: var(--rule-strong);
+}
+
+/* --------------------------------------------------------------------------
+   methods.html: the methods page and the failure record
+
+   THE FAILURE RECORD IS NOT AN ERRATA SLIP. It is set at the same weight as
+   the board, in the same certificate register, with the same field wells and
+   the same boxed codes. A defect gets a numbered record, a status, and four
+   labelled fields, because that is what the run records on the board get and
+   burying the failures in smaller type would contradict the page's argument.
+
+   No new colour token is introduced here. Status wears the three hues the
+   board already owns: --fault for open, --measure for closed, --refuse for
+   held, --ink-quiet for on-record. Everything below is derived from the seven
+   tokens declared at the top of this file, so both themes and the explicit
+   [data-theme] override are inherited rather than re-declared.
+   -------------------------------------------------------------------------- */
+
+.m-page {
+  display: block;
+}
+
+.m-back {
+  margin-top: 22px;
+  font-size: 13px;
+}
+
+/* Six sections sit on --paper and one, the failure record, sits on --record.
+   That is the whole hierarchy of this page: the failures are the centre of it,
+   and the surface says so before a word is read. */
+.m-zone {
+  padding: 40px 0 44px;
+  border-top: 1px solid var(--rule);
+}
+
+.m-page > .m-zone:first-child {
+  border-top: 0;
+}
+
+.m-zone > .wrap > p {
+  max-width: 76ch;
+  margin-top: 14px;
+  color: var(--ink-quiet);
+}
+
+.m-sub {
+  max-width: 76ch;
+  margin-top: 32px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.m-note {
+  max-width: 76ch;
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: var(--mark);
+  border-left: 3px solid var(--rule-strong);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.m-list {
+  max-width: 76ch;
+  margin-top: 16px;
+}
+
+.m-list > li {
+  margin-top: 10px;
+  padding-left: 18px;
+  position: relative;
+  font-size: 14px;
+  color: var(--ink-quiet);
+}
+
+.m-list > li::before {
+  content: "";
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 7px;
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+.m-list strong {
+  color: var(--ink);
+}
+
+.m-numlist {
+  max-width: 76ch;
+  margin-top: 10px;
+  counter-reset: mnum;
+}
+
+.m-numlist > li {
+  margin-top: 12px;
+  padding-left: 30px;
+  position: relative;
+  counter-increment: mnum;
+  font-size: 14px;
+  color: var(--ink-quiet);
+}
+
+.m-numlist > li::before {
+  content: counter(mnum);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.m-numlist strong {
+  color: var(--ink);
+}
+
+/* Term above definition, the way a field label sits above a value on the
+   board, rather than side by side: a two-column dl collapses badly at 320px
+   and the terms here are long enough to force it. */
+.m-defs {
+  max-width: 76ch;
+  margin-top: 18px;
+}
+
+.m-defs dt {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.m-defs dd {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--ink-quiet);
+}
+
+.m-defs-tight dt {
+  margin-top: 12px;
+  padding-top: 8px;
+}
+
+/* --------------------------------------------------------------------------
+   the gate ladder
+   -------------------------------------------------------------------------- */
+
+.ladder {
+  margin-top: 24px;
+  counter-reset: rung;
+}
+
+.rung {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  border-radius: var(--radius);
+  counter-increment: rung;
+}
+
+.rung-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.rung-head::before {
+  content: counter(rung);
+  min-width: 26px;
+  padding: 2px 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  color: var(--ink-faint);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+.rung-cost {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.rung-title {
+  margin-top: 10px;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.rung-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+@media (min-width: 860px) {
+  .rung-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+  }
+}
+
+.rung-field p {
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.rung-field strong {
+  color: var(--ink);
+}
+
+.field-label {
+  margin-bottom: 5px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+/* --------------------------------------------------------------------------
+   the failure record
+   -------------------------------------------------------------------------- */
+
+.m-zone-failures {
+  background: var(--record);
+}
+
+.m-legend {
+  max-width: 76ch;
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.legend-list {
+  margin-top: 8px;
+}
+
+.legend-list > li {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.legend-note {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.m-group {
+  max-width: 76ch;
+  margin-top: 44px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.fail {
+  margin-top: 18px;
+  padding: 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rule-strong);
+  border-radius: var(--radius);
+  scroll-margin-top: 16px;
+}
+
+/* The status hue is carried on the record's own edge, so scanning the left
+   margin of this section reads open against closed without reading a word. */
+.fail:has(.tag-fault) {
+  border-left-color: var(--fault);
+}
+
+.fail:has(.tag-ok) {
+  border-left-color: var(--measure);
+}
+
+.fail:has(.tag-hold) {
+  border-left-color: var(--refuse);
+}
+
+.fail-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 6px 12px;
+}
+
+@media (min-width: 720px) {
+  .fail-head {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: baseline;
+  }
+}
+
+.fail-num {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.1;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.fail-title {
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+/* On a phone the status sits under the title rather than beside it, in the
+   second column, so it never squeezes the headline into a two-word column. */
+.fail-head > .tag {
+  grid-column: 2;
+  justify-self: start;
+  margin-right: 0;
+}
+
+@media (min-width: 720px) {
+  .fail-head > .tag {
+    grid-column: 3;
+    justify-self: end;
+  }
+}
+
+.fail-body {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.fail-field + .fail-field {
+  margin-top: 14px;
+}
+
+.fail-field > p {
+  font-size: 14px;
+  color: var(--ink-quiet);
+}
+
+.fail-field > p + p {
+  margin-top: 8px;
+}
+
+.fail-field strong {
+  color: var(--ink);
+}
+
+.ev-list {
+  margin-top: 6px;
+}
+
+.ev-list > li {
+  margin-top: 7px;
+  padding-left: 14px;
+  position: relative;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.ev-list > li::before {
+  content: "";
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 6px;
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+.ev-kind {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+}
+
+/* Wide content scrolls inside its own box. The document body never does. */
+.m-scroll {
+  max-width: 100%;
+  margin-top: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.m-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+/* Child combinators the whole way down, on purpose. Failure record entry 26 is
+   a header rule that reached a nested table through a descendant combinator and
+   forced it out of its container. A table rule written as `.m-table th` has the
+   same shape as the rule that caused it, so these are written so they cannot
+   reach past one level even if a table is nested inside one of these cells. */
+.m-table > thead > tr > th,
+.m-table > tbody > tr > td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
+}
+
+.m-table > thead > tr > th {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+  background: var(--record);
+}
+
+.m-table > tbody > tr > td {
+  color: var(--ink-quiet);
+}
+
+/* Marked per cell rather than by column position: one of these tables has a
+   prose column where the other has a count, and a positional rule would have
+   set a sentence in tabular monospace and refused to let it wrap. */
+.m-table td.m-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.m-table > tbody > tr:last-child > td {
+  border-bottom: 0;
+}
+
+/* --------------------------------------------------------------------------
+   what the numbers do not mean
+   -------------------------------------------------------------------------- */
+
+.caveats {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 22px;
+}
+
+@media (min-width: 960px) {
+  .caveats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.caveat {
+  padding: 16px;
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-top: 3px solid var(--refuse);
+  border-radius: var(--radius);
+}
+
+.caveat-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.caveat p {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+/* --------------------------------------------------------------------------
+   the link out to this page from the board
+   -------------------------------------------------------------------------- */
+
+.methods-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  max-width: 76ch;
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--refuse);
+  border-radius: var(--radius);
+}
+
+.methods-link a {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.methods-link span {
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+/* The only navigation from the board into the failure record, and the footer
+   links beside it, are flex children rather than prose links, so they need the
+   same 44px target every other control on this site meets. */
+.methods-link a,
+.issuing a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }

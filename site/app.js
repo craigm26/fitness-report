@@ -993,6 +993,9 @@ export function extensionLedgerOf(run, gate) {
         .filter((v) => v.gate !== null || v.taskId !== null || v.detail !== null);
       return {
         index: finite(o.index) ?? i + 1,
+        // The tasks this batch bought, by name. They are the correlation ids the
+        // reference pass stamped, so the batch can be opened task by task.
+        taskIds: (Array.isArray(o.taskIds) ? o.taskIds : []).filter((id) => typeof id === 'string' && id.length > 0),
         k: counts ? counts.k : null,
         n: counts ? counts.n : null,
         derivedFromPool,
@@ -1951,6 +1954,325 @@ export function replayUrlOf(run) {
   return buildViewerUrl(links.mcp, links.agent);
 }
 
+// ---------------------------------------------------------------------------
+// deep links: a finding opens on its own frames
+//
+// The viewer takes a correlation id and opens the merged tapes on the frames
+// stamped with it:
+//
+//   <viewer>?trace=<enc a>;<enc b>#view=events&corr=<correlation id>
+//
+// Our tapes stamp corr_id on every line. The scored drive stamps the bare task
+// id; the construct reference pass and the null baselines stamp
+// <taskId>::<phase>. So a finding that names a task can open on that task
+// instead of on a session of twenty four.
+//
+// Three rules keep that honest and they are enforced here rather than in copy.
+//
+//   1. Both halves of the url come from the run's own record. The trace urls
+//      are the ones this run published and the viewer is the one this run's
+//      record points at, so nothing on this page hardcodes a host.
+//   2. A run with no published tape gets no link at all. A dead link is worse
+//      than a sentence saying the recording was never published.
+//   3. A correlation id is emitted only when this record carries it. Every id
+//      below is read off score.tasks, off an extension batch's pooled task ids,
+//      or off a violation that names one. An id that cannot be found in the
+//      record is dropped and the link falls back to the whole run, because a
+//      link that opens an empty viewer is a claim the evidence does not carry.
+// ---------------------------------------------------------------------------
+
+/** Gate id to the phase its pass stamps on every correlation id it writes. */
+export const GATE_PHASES = { construct: 'construct' };
+
+/** Null model label to the phase that baseline stamps. */
+export const NULL_PHASES = {
+  'no-tools': 'null-no-tools',
+  'stubbed-empty': 'null-stubbed-empty',
+  'random-valid-args': 'null-random'
+};
+
+/** The traceLinks block, only when the record really carries one. */
+export function traceLinksOf(run) {
+  const links = run && typeof run.traceLinks === 'object' && run.traceLinks !== null ? run.traceLinks : null;
+  return links || null;
+}
+
+/**
+ * The plane urls this run published: https only, and semicolon free.
+ *
+ * The viewer merges on a semicolon, so a trace url that contains one cannot be
+ * carried in the parameter at all. It is refused rather than escaped: escaping
+ * would hand the viewer a url it would then split in the wrong place.
+ */
+export function traceUrlsOf(run) {
+  const links = traceLinksOf(run);
+  if (!links) return [];
+  return [safeUrl(links.mcp), safeUrl(links.agent)].filter((url) => url !== null && !url.includes(';'));
+}
+
+/** The ?trace= parameter for this run, or null when it published no usable tape. */
+export function traceParamOf(run) {
+  const usable = traceUrlsOf(run);
+  if (usable.length === 0) return null;
+  return usable.map((url) => encodeURIComponent(url)).join(';');
+}
+
+/**
+ * The viewer origin this run's own record points at.
+ *
+ * Read from the recorded viewer link rather than assumed, so a run published
+ * against a different viewer keeps its own. The module constant is the fallback
+ * for a record that published tapes without a viewer link.
+ */
+export function viewerBaseOf(run) {
+  const links = traceLinksOf(run);
+  const recorded = links ? safeUrl(links.viewer) : null;
+  if (recorded) {
+    try {
+      const url = new URL(recorded);
+      return `${url.origin}${url.pathname}`;
+    } catch {
+      return VIEWER_BASE;
+    }
+  }
+  return VIEWER_BASE;
+}
+
+/**
+ * Every task this record carries, in the order it carries them.
+ *
+ * Two sources only: the tasks the drive scored, and the tasks an extension
+ * batch bought. A task id that appears nowhere but in a violation is a name,
+ * not a task this record can place, so it is left out and the finding that
+ * names it prints the name instead of linking it.
+ */
+export function taskIdsOf(run) {
+  const ids = [];
+  const push = (value) => {
+    if (typeof value === 'string' && value.length > 0 && !ids.includes(value)) ids.push(value);
+  };
+  const score = scoreOf(run);
+  const tasks = score && Array.isArray(score.tasks) ? score.tasks : [];
+  for (const task of tasks) push(asObject(task).taskId);
+  const extensions = Array.isArray(asObject(run && run.gates).extensions) ? run.gates.extensions : [];
+  for (const entry of extensions) {
+    const o = asObject(entry);
+    if (Array.isArray(o.taskIds)) for (const id of o.taskIds) push(id);
+  }
+  return ids;
+}
+
+/**
+ * Every correlation id this record supports, bare and phase stamped.
+ *
+ * A phase stamped id is only added where the record evidences that the phase
+ * ran for that task: a construct extension batch names the tasks it bought, and
+ * a scored run's construct gate records how many reference passes it ran over
+ * the suite it then scored. Nothing here stamps a phase onto a task on the
+ * strength of the naming convention alone.
+ */
+export function correlationIdsOf(run) {
+  const ids = new Set(taskIdsOf(run));
+  const gates = asObject(run && run.gates);
+  const extensions = Array.isArray(gates.extensions) ? gates.extensions : [];
+  for (const entry of extensions) {
+    const o = asObject(entry);
+    // An entry with no gate field belongs to construct, the only gate that buys
+    // an extension in v0, matching how the extension ledger reads the same rows.
+    const gate = typeof o.gate === 'string' ? o.gate : 'construct';
+    const phase = GATE_PHASES[gate];
+    if (!phase || !Array.isArray(o.taskIds)) continue;
+    for (const id of o.taskIds) {
+      if (typeof id === 'string' && id.length > 0) ids.add(`${id}::${phase}`);
+    }
+  }
+  const construct = gateRecordOf(run, 'construct');
+  const reps = finite(asObject(construct && construct.detail).n);
+  const score = scoreOf(run);
+  if (construct && reps !== null && reps > 0 && score && Array.isArray(score.tasks)) {
+    for (const task of score.tasks) {
+      const id = asObject(task).taskId;
+      if (typeof id === 'string' && id.length > 0) ids.add(`${id}::construct`);
+    }
+  }
+  // A null baseline row is frames only where it names both which baseline ran
+  // and which task it ran on. The baselines run over the whole suite, but the
+  // record does not say which task each pass belongs to unless it names one, so
+  // only the named ones are enumerated.
+  const nulls = gateRecordOf(run, 'null_baseline');
+  for (const rate of Array.isArray(asObject(nulls && nulls.detail).rates) ? nulls.detail.rates : []) {
+    const row = asObject(rate);
+    const phase = NULL_PHASES[String(row.label)];
+    const taskId = firstString(row, ['taskId']);
+    if (phase && taskId) ids.add(`${taskId}::${phase}`);
+  }
+  return ids;
+}
+
+/**
+ * The viewer url focused on one correlation id, or null.
+ *
+ * Null on three counts, each of which is a rule rather than a defect: the id is
+ * not one this record carries, the run published no tape, or every tape url it
+ * published contains the viewer's own separator.
+ */
+export function focusUrlOf(run, corrId) {
+  if (typeof corrId !== 'string' || corrId.length === 0) return null;
+  if (!correlationIdsOf(run).has(corrId)) return null;
+  const trace = traceParamOf(run);
+  if (trace === null) return null;
+  return `${viewerBaseOf(run)}?trace=${trace}#view=events&corr=${encodeURIComponent(corrId)}`;
+}
+
+/**
+ * The best correlation id for one task, given the phase whose frames are meant.
+ *
+ * The phase stamped id is preferred where the record carries it, because that
+ * is the pass the finding is about. Otherwise the bare drive id, and otherwise
+ * nothing at all.
+ */
+export function corrForTask(run, taskId, phase) {
+  if (typeof taskId !== 'string' || taskId.length === 0) return null;
+  const known = correlationIdsOf(run);
+  if (phase) {
+    const stamped = `${taskId}::${phase}`;
+    if (known.has(stamped)) return stamped;
+  }
+  return known.has(taskId) ? taskId : null;
+}
+
+/** Task ids from this record that a free text evidence string actually names. */
+export function taskIdsNamedIn(text, run) {
+  if (typeof text !== 'string' || text.length === 0) return [];
+  const found = [];
+  for (const id of taskIdsOf(run)) {
+    const at = text.indexOf(id);
+    if (at === -1) continue;
+    // A whole token, never a fragment of a longer id that happens to contain it.
+    const before = at === 0 ? '' : text[at - 1];
+    const after = text[at + id.length] || '';
+    if (/[A-Za-z0-9_-]/.test(before) || /[A-Za-z0-9_-]/.test(after)) continue;
+    found.push(id);
+  }
+  return found;
+}
+
+/** The first task id an array of gate detail entries names, or null. */
+function firstNamedTask(value) {
+  if (!Array.isArray(value)) return null;
+  for (const entry of value) {
+    if (typeof entry === 'string' && entry.length > 0) return entry;
+    const named = firstString(entry, ['taskId', 'task', 'id']);
+    if (named) return named;
+  }
+  return null;
+}
+
+/**
+ * The correlation id a gate row can open on, or null.
+ *
+ * A gate is a statement about a suite, not about a task, so most gate rows have
+ * no correlation to open on and keep a run level link. The exceptions are gates
+ * whose record names a task: then the phase that gate's pass stamps turns that
+ * name into frames. A gate whose pass spends no model turns stamps no phase, so
+ * it can only ever resolve to a bare drive id, and only when the record carries
+ * one.
+ */
+export function gateFocusCorr(run, record) {
+  const o = asObject(record);
+  const gate = typeof o.gate === 'string' ? o.gate : null;
+  if (!gate) return null;
+  const detail = asObject(o.detail);
+  const known = correlationIdsOf(run);
+  if (gate === 'null_baseline') {
+    // A null row is only frames when it names both which baseline ran and which
+    // task it ran on. Neither alone is a correlation.
+    for (const rate of Array.isArray(detail.rates) ? detail.rates : []) {
+      const row = asObject(rate);
+      const phase = NULL_PHASES[String(row.label)];
+      const taskId = firstString(row, ['taskId']);
+      if (!phase || !taskId) continue;
+      const corr = `${taskId}::${phase}`;
+      if (known.has(corr)) return corr;
+    }
+    return null;
+  }
+  const named =
+    firstString(detail, ['taskId', 'worstTaskId']) ||
+    firstNamedTask(detail.leaks) ||
+    firstNamedTask(detail.failures) ||
+    firstNamedTask(detail.offenders);
+  if (!named) return null;
+  return corrForTask(run, named, GATE_PHASES[gate] || null);
+}
+
+/**
+ * Which tasks a per tool row can be pinned to, and why the record forces it.
+ *
+ * Two things force it. A record that names the tasks on the tool row itself is
+ * taken at its word. Otherwise, a failure class recorded by exactly one tool
+ * must have come from that tool, so every task that failed with that class is
+ * that tool's. Anything short of forced is left off: a run level link is honest
+ * and a guessed correlation is not.
+ */
+export function toolTaskAttribution(run) {
+  const out = new Map();
+  const score = scoreOf(run);
+  if (!score) return out;
+  const tools = (Array.isArray(score.tools) ? score.tools : []).map((tool) => asObject(tool));
+  const tasks = (Array.isArray(score.tasks) ? score.tasks : []).map((task) => asObject(task));
+  const known = new Set(taskIdsOf(run));
+
+  const owners = new Map();
+  for (const tool of tools) {
+    const name = firstString(tool, ['tool']);
+    if (!name) continue;
+    for (const [failureClass, count] of Object.entries(asObject(tool.failureClasses))) {
+      if ((finite(count) ?? 0) <= 0) continue;
+      if (!owners.has(failureClass)) owners.set(failureClass, new Set());
+      owners.get(failureClass).add(name);
+    }
+  }
+
+  for (const tool of tools) {
+    const name = firstString(tool, ['tool']);
+    if (!name || out.has(name)) continue;
+    const declared = (Array.isArray(tool.taskIds) ? tool.taskIds : [tool.taskId]).filter(
+      (id) => typeof id === 'string' && known.has(id)
+    );
+    if (declared.length > 0) {
+      out.set(name, { ids: [...new Set(declared)], why: 'the record names them on this tool row' });
+      continue;
+    }
+    const forced = [];
+    const classes = [];
+    for (const [failureClass, tookIt] of owners) {
+      if (tookIt.size !== 1 || !tookIt.has(name)) continue;
+      let matched = false;
+      for (const task of tasks) {
+        const id = firstString(task, ['taskId']);
+        if (task.failure !== failureClass || !id || !known.has(id) || forced.includes(id)) continue;
+        forced.push(id);
+        matched = true;
+      }
+      if (matched) classes.push(failureClass);
+    }
+    if (forced.length > 0) {
+      out.set(name, {
+        ids: forced,
+        why: `this was the only tool that recorded ${classes.join(' and ')}`
+      });
+    }
+  }
+  return out;
+}
+
+/** True when this record can put at least one link on a finding's own frames. */
+export function hasFrameLinks(run) {
+  if (traceParamOf(run) === null) return false;
+  return correlationIdsOf(run).size > 0;
+}
+
 export function intervalAriaLabel(interval) {
   return [
     `first try success ${fmtPct(interval.rate)}`,
@@ -2311,15 +2633,51 @@ function evidenceName(run, context) {
  * Every one of these carries an accessible name that says which run and which
  * finding it belongs to, because a link list of forty links all reading
  * "evidence" is a link list with no evidence in it.
+ *
+ * `corrId` is optional and is the difference between a finding that opens the
+ * whole recording and one that opens its own frames. When the record carries
+ * the id, the link is focused and wears a visible mark that says so. When it
+ * does not, the link falls back to the run and the page claims nothing more.
  */
-function evidenceLink(run, label, context) {
-  const url = replayUrlOf(run);
+function evidenceLink(run, label, context, corrId) {
+  const focused = corrId ? focusUrlOf(run, corrId) : null;
+  const url = focused || replayUrlOf(run);
   if (!url) return el('span', 'evidence is-missing', 'no recording published');
   const text = label || 'evidence';
-  const a = link(url, text, 'evidence');
-  a.title = 'Open the recorded session behind this finding';
-  a.setAttribute('aria-label', `${text}: ${evidenceName(run, context)}. Opens the recorded session in a new tab.`);
+  const a = link(url, text, focused ? 'evidence is-focused' : 'evidence');
+  if (focused) {
+    a.appendChild(el('span', 'evidence-mark', 'its frames'));
+    a.title = `Opens the recording on the frames stamped ${corrId}, not the whole session`;
+    a.setAttribute(
+      'aria-label',
+      `${text}: ${evidenceName(run, context)}. Opens the recorded session in a new tab, on the frames stamped ${corrId}.`
+    );
+  } else {
+    a.title = 'Open the recorded session behind this finding';
+    a.setAttribute('aria-label', `${text}: ${evidenceName(run, context)}. Opens the recorded session in a new tab.`);
+  }
   return a;
+}
+
+/**
+ * A row of frame links, one per task, for a finding that names several.
+ *
+ * Ids that this record cannot place are not dropped silently: they are printed
+ * as text, so a finding that names a task the record does not carry reads as a
+ * named task with no frames rather than as a task that was never named.
+ */
+function frameLinks(run, ids, context, phase) {
+  const wrap = el('span', 'frame-links');
+  for (const id of ids) {
+    const corr = corrForTask(run, id, phase);
+    const url = corr ? focusUrlOf(run, corr) : null;
+    // No frames to open, for either reason: the record cannot place the id, or
+    // the run published no tape. Either way the name is printed, because the
+    // finding named a task and dropping it would hide that it did.
+    if (url) wrap.appendChild(evidenceLink(run, id, context, corr));
+    else wrap.appendChild(el('span', 'evidence is-missing', id));
+  }
+  return wrap;
 }
 
 function definition(parent, term, value) {
@@ -3144,7 +3502,7 @@ function gateTier(run) {
   const table = el('table', 'panel-table');
   const thead = el('thead');
   const hrow = el('tr');
-  for (const heading of ['Gate', 'Cost', 'Result', 'Reason', 'Counts']) {
+  for (const heading of ['Gate', 'Cost', 'Result', 'Reason', 'Counts', 'Evidence']) {
     const th = el('th', null, heading);
     th.scope = 'col';
     hrow.appendChild(th);
@@ -3166,10 +3524,24 @@ function gateTier(run) {
     reason.appendChild(el('code', null, record.reason || 'no reason string'));
     tr.appendChild(reason);
     tr.appendChild(el('td', null, verdictLine(record.verdict) || compactDetailLine(record.detail) || 'no counts'));
+    // A gate speaks about a suite, so most gate rows have no correlation to
+    // open on and keep the whole run. The ones whose record names a task get
+    // that task's frames, stamped with the phase that gate's pass writes.
+    const corr = gateFocusCorr(run, record);
+    const evidence = el('td');
+    evidence.appendChild(evidenceLink(run, corr ? 'recorded session' : 'the run', `the ${gateLabel(record.gate)} gate`, corr));
+    tr.appendChild(evidence);
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
   section.appendChild(scrollTable(table, 'Gate ledger'));
+  section.appendChild(
+    el(
+      'p',
+      'tier-note',
+      'A gate is a decision about the whole suite, so a gate row opens the whole recording unless its own record names the task it turned on. Where it does, the link carries the phase that gate stamps and opens on those frames. Where it does not, no correlation is invented to fill the cell.'
+    )
+  );
   const protocol = extensionProtocolOf(run);
   if (protocol.policy.recorded) {
     section.appendChild(
@@ -3223,6 +3595,84 @@ function probeTier(run) {
   return section;
 }
 
+/**
+ * Every task the drive ran, one row each, each on its own frames.
+ *
+ * This is the finding that most needed a deep link. A reader who wants to know
+ * why one task of twenty four failed should land on that task's frames, not on
+ * the whole session with a scroll bar and a guess. The scored drive stamps the
+ * bare task id on every line it writes, so the row's own id is the correlation.
+ *
+ * A run that was refused before the drive has no tasks in its record and gets
+ * the sentence instead of an empty table.
+ */
+function taskTier(run) {
+  const score = scoreOf(run);
+  const tasks = score && Array.isArray(score.tasks) ? score.tasks.filter((task) => task && typeof task === 'object') : [];
+  const section = tier('tier-2', null, 'Per task');
+  if (tasks.length === 0) {
+    section.appendChild(el('p', 'is-missing', 'no per task rows exist for a run that was refused before the drive'));
+    return section;
+  }
+  const table = el('table', 'panel-table');
+  const thead = el('thead');
+  const hrow = el('tr');
+  for (const heading of ['Task', 'First try', 'Outcome', 'Calls', 'MRTR rounds', 'Runner tokens', 'Cost', 'Evidence']) {
+    const th = el('th', null, heading);
+    th.scope = 'col';
+    hrow.appendChild(th);
+  }
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+  const tbody = el('tbody');
+  for (const task of tasks) {
+    const id = firstString(task, ['taskId']);
+    const tr = el('tr', task.success === false ? 'is-fault-row' : null);
+    tr.appendChild(el('td', 'task-id', id || 'task id not recorded'));
+    tr.appendChild(
+      el(
+        'td',
+        null,
+        task.firstTrySuccess === true ? 'yes' : task.firstTrySuccess === false ? 'no' : 'not recorded'
+      )
+    );
+    const outcome = el('td');
+    outcome.appendChild(
+      el(
+        'span',
+        task.success === true ? 'tag tag-ok' : task.success === false ? 'tag tag-fault' : 'tag tag-unknown',
+        task.success === true ? 'completed' : task.success === false ? 'not completed' : 'not recorded'
+      )
+    );
+    const failure = firstString(task, ['failure']);
+    if (failure) outcome.appendChild(el('div', 'failure-classes', failure));
+    tr.appendChild(outcome);
+    tr.appendChild(el('td', null, fmtInt(task.toolCalls)));
+    tr.appendChild(el('td', null, fmtInt(task.mrtrRounds)));
+    const tokens = (finite(task.inputTokens) ?? 0) + (finite(task.outputTokens) ?? 0);
+    tr.appendChild(
+      el('td', null, finite(task.inputTokens) === null && finite(task.outputTokens) === null ? 'not recorded' : fmtInt(tokens))
+    );
+    tr.appendChild(el('td', null, finite(task.costUsd) === null ? 'no price on file' : fmtUsd(task.costUsd)));
+    const evidence = el('td');
+    evidence.appendChild(
+      evidenceLink(run, 'recorded session', `task ${id || 'unnamed'}`, id ? corrForTask(run, id, null) : null)
+    );
+    tr.appendChild(evidence);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  section.appendChild(scrollTable(table, 'Per task'));
+  section.appendChild(
+    el(
+      'p',
+      'tier-note',
+      'Every line the drive wrote carries the task id it was written for, so each row opens the recording on its own frames rather than on the whole session. A row whose id the record did not carry opens the run instead.'
+    )
+  );
+  return section;
+}
+
 function toolTier(run) {
   const score = scoreOf(run);
   const tools = score && Array.isArray(score.tools) ? score.tools : [];
@@ -3234,7 +3684,7 @@ function toolTier(run) {
   const table = el('table', 'panel-table');
   const thead = el('thead');
   const hrow = el('tr');
-  for (const heading of ['Tool', 'Calls', 'Errors', 'p50', 'p95', 'Destructive declared', 'Destructive inferred']) {
+  for (const heading of ['Tool', 'Calls', 'Errors', 'p50', 'p95', 'Destructive declared', 'Destructive inferred', 'Evidence']) {
     const th = el('th', null, heading);
     th.scope = 'col';
     hrow.appendChild(th);
@@ -3242,6 +3692,7 @@ function toolTier(run) {
   thead.appendChild(hrow);
   table.appendChild(thead);
   const tbody = el('tbody');
+  const attribution = toolTaskAttribution(run);
   for (const tool of tools) {
     if (!tool || typeof tool !== 'object') continue;
     const tr = el('tr');
@@ -3268,6 +3719,20 @@ function toolTier(run) {
             : 'no'
       )
     );
+    // A tool row is pinned to its tasks only where the record forces the
+    // pairing. Where it does not, the row keeps the whole run rather than
+    // borrowing a correlation from a tool that happens to sit next to it.
+    const name = firstString(tool, ['tool']);
+    const pinned = name ? attribution.get(name) : null;
+    const evidence = el('td');
+    if (pinned) {
+      evidence.appendChild(frameLinks(run, pinned.ids, `tool ${name}`, null));
+      evidence.appendChild(el('div', 'rec-note', pinned.why));
+    } else {
+      evidence.appendChild(evidenceLink(run, 'the run', `tool ${name || 'unnamed tool'}`));
+      evidence.appendChild(el('div', 'rec-note', 'this record does not say which tasks called it'));
+    }
+    tr.appendChild(evidence);
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -3277,6 +3742,13 @@ function toolTier(run) {
       'p',
       'tier-note',
       'A tool counts as destructive unless it declares readOnlyHint true or destructiveHint false, because those are the spec defaults. Declared and inferred disagreement is itself a finding.'
+    )
+  );
+  section.appendChild(
+    el(
+      'p',
+      'tier-note',
+      'A tool row opens on a task only where this record forces the pairing: it named the tasks itself, or exactly one tool recorded the failure class a task failed with, which leaves nowhere else that failure could have come from. Every other row opens the whole run, because a correlation this page had to guess at is not evidence.'
     )
   );
   return section;
@@ -3450,8 +3922,18 @@ function identityTier(run) {
       head.appendChild(el('span', 'finding-id', `${item.tool}.${item.param}`));
       li.appendChild(head);
       li.appendChild(el('p', 'finding-detail', String(item.why || 'no explanation recorded')));
+      // The finding names its own evidence in prose. Where that prose names a
+      // task this record carries, the link opens on that task's frames instead
+      // of on the session it sits somewhere inside.
+      const cited = firstString(item, ['evidence']);
+      const named = taskIdsNamedIn(cited, run);
       const evidence = el('p', 'evidence-line');
-      evidence.appendChild(evidenceLink(run, 'recorded session', `ambiguous parameter ${item.tool}.${item.param}`));
+      if (cited) evidence.appendChild(el('span', null, `${cited} `));
+      if (named.length > 0) {
+        evidence.appendChild(frameLinks(run, named, `ambiguous parameter ${item.tool}.${item.param}`, null));
+      } else {
+        evidence.appendChild(evidenceLink(run, 'recorded session', `ambiguous parameter ${item.tool}.${item.param}`));
+      }
       li.appendChild(evidence);
       list.appendChild(li);
     }
@@ -3468,8 +3950,16 @@ function identityTier(run) {
       li.appendChild(el('p', 'rewrite-current', `current: ${String(rewrite.current || '')}`));
       li.appendChild(el('p', 'rewrite-proposed', `proposed: ${String(rewrite.proposed || '')}`));
       const why = el('p', 'rewrite-why');
-      why.appendChild(el('span', null, String(rewrite.causalEvidence || 'no causal evidence recorded')));
-      why.appendChild(evidenceLink(run, 'recorded sessions', `rewrite for ${String(rewrite.tool || 'unnamed tool')}`));
+      const causal = firstString(rewrite, ['causalEvidence']);
+      why.appendChild(el('span', null, `${causal || 'no causal evidence recorded'} `));
+      // A rewrite is only worth publishing when it can point at the sessions it
+      // was derived from, so the tasks it names are linked one by one.
+      const cited = taskIdsNamedIn(causal, run);
+      if (cited.length > 0) {
+        why.appendChild(frameLinks(run, cited, `rewrite for ${String(rewrite.tool || 'unnamed tool')}`, null));
+      } else {
+        why.appendChild(evidenceLink(run, 'recorded sessions', `rewrite for ${String(rewrite.tool || 'unnamed tool')}`));
+      }
       li.appendChild(why);
       list.appendChild(li);
     }
@@ -3527,6 +4017,39 @@ function extensionFold(run, ledgers) {
         const figures = extensionFigures(ledger);
         if (figures.length > 0) block.appendChild(figureGrid(figures));
         for (const line of extensionSentences(ledger)) block.appendChild(el('p', 'story-line', line));
+        // A bought batch names the tasks it added and, where a free gate voided
+        // it, the task that voided it. Both are correlation ids this record
+        // carries, so both open on their own frames rather than on the session.
+        const phase = GATE_PHASES[ledger.gate] || null;
+        for (const batch of ledger.batches) {
+          if (batch.taskIds.length > 0) {
+            const line = el('p', 'evidence-line');
+            line.appendChild(
+              el(
+                'span',
+                null,
+                `Extension ${batch.index} bought ${batch.taskIds.length} ${
+                  batch.taskIds.length === 1 ? 'task' : 'tasks'
+                }, each on its own frames: `
+              )
+            );
+            line.appendChild(frameLinks(run, batch.taskIds, `extension ${batch.index} on the ${ledger.gateLabel} gate`, phase));
+            block.appendChild(line);
+          }
+          const offenders = batch.violations.map((violation) => violation.taskId).filter((id) => typeof id === 'string' && id);
+          if (offenders.length > 0) {
+            const line = el('p', 'evidence-line');
+            line.appendChild(
+              el(
+                'span',
+                null,
+                `The ${offenders.length === 1 ? 'task' : 'tasks'} that voided extension ${batch.index}: `
+              )
+            );
+            line.appendChild(frameLinks(run, offenders, `the task that voided extension ${batch.index}`, phase));
+            block.appendChild(line);
+          }
+        }
         const evidence = el('p', 'evidence-line');
         evidence.appendChild(el('span', null, 'Every count above is read from this run: '));
         evidence.appendChild(evidenceLink(run, 'open the recorded session', `the ${ledger.gateLabel} extension ledger`));
@@ -3705,6 +4228,18 @@ export function renderRecord(node, run, context) {
     chips.appendChild(chip(`Run ${cohort.attempt} of ${cohort.total} for this server`, 'chip-attempt', 'Reruns of one server are separate attempts, each with its own task suite and its own outcome. Every one of them stays on this page and none of them is a best of.'));
   }
   head.appendChild(chips);
+  // The mark is only explained where it appears. A legend for an affordance no
+  // finding on this record can carry would be this page describing a link the
+  // reader will never see.
+  if (hasFrameLinks(run)) {
+    head.appendChild(
+      el(
+        'p',
+        'record-legend',
+        'An evidence link marked "its frames" opens the recording on that finding’s own correlation id rather than on the whole session. An unmarked link opens the whole recording, because this record does not tie that finding to one.'
+      )
+    );
+  }
   inner.appendChild(head);
 
   const deciding = decidingTier(run);
@@ -3717,6 +4252,7 @@ export function renderRecord(node, run, context) {
 
   inner.appendChild(gateTier(run));
   inner.appendChild(probeTier(run));
+  inner.appendChild(taskTier(run));
   inner.appendChild(toolTier(run));
   inner.appendChild(costTier(run));
   inner.appendChild(identityTier(run));

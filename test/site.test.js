@@ -25,9 +25,13 @@ import {
   BOARD_ORDER,
   LEDGER_ORDER,
   OUTCOME_NOTES,
+  VIEWER_BASE,
   boardOrderLine,
   boardStats,
+  buildViewerUrl,
   cohortPlaceOf,
+  corrForTask,
+  correlationIdsOf,
   costTotalLine,
   decisiveLine,
   exhaustedReading,
@@ -37,6 +41,9 @@ import {
   extensionProtocolSentence,
   extensionSentences,
   familyBuckets,
+  focusUrlOf,
+  gateFocusCorr,
+  hasFrameLinks,
   indexRuns,
   judgeFloorReasons,
   judgeUsageOf,
@@ -48,6 +55,7 @@ import {
   renderLedger,
   renderRecord,
   renderStandingNotes,
+  replayUrlOf,
   rerunSummary,
   routeFromHash,
   runCostOf,
@@ -59,13 +67,20 @@ import {
   spendLine,
   spendNote,
   standingNotes,
-  thesisCountLine
+  taskIdsNamedIn,
+  taskIdsOf,
+  thesisCountLine,
+  toolTaskAttribution,
+  traceParamOf,
+  traceUrlsOf,
+  viewerBaseOf
 } from '../site/app.js';
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url));
 const RUNS = JSON.parse(readFileSync(here('../site/data/runs.json'), 'utf8'));
 const APP_SOURCE = readFileSync(here('../site/app.js'), 'utf8');
 const INDEX_SOURCE = readFileSync(here('../site/index.html'), 'utf8');
+const METHODS_SOURCE = readFileSync(here('../site/methods.html'), 'utf8');
 
 /** A record shaped like one the current harness writes, fully priced. */
 function pricedRun(overrides = {}) {
@@ -1097,5 +1112,657 @@ describe('the board is one row per run, with no expandable panels', () => {
         expect(row.textContent).toContain(run.run.runnerModel);
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FINDING F: a finding opens on its own frames, or it opens the whole run and
+// says so. Never on a correlation this page had to invent.
+//
+// The viewer takes a correlation id and opens the merged tapes on the frames
+// stamped with it. Our tapes stamp corr_id on every line: the scored drive
+// stamps the bare task id, the construct reference pass and the null baselines
+// stamp <taskId>::<phase>. These tests hold the three rules that keep that
+// honest: the url is built from the run's own record, the encoding survives a
+// round trip, and an id the record does not carry never reaches the DOM.
+// ---------------------------------------------------------------------------
+
+const TAPE_HOST = 'https://tapes.fixture.test';
+
+/** A scored run that published two planes, with tasks and tools to link. */
+function linkedRun() {
+  const run = pricedRun();
+  run.traceLinks = {
+    mcp: `${TAPE_HOST}/traces/fixture/mcp.jsonl`,
+    agent: `${TAPE_HOST}/traces/fixture/agent.jsonl`,
+    viewer: 'https://replay.fixture.test/?trace=whatever#view=calls'
+  };
+  run.score = {
+    runnerModel: 'claude-sonnet-5',
+    firstTrySuccess: { rate: 0.5, low: 0.2, high: 0.8, k: 1, n: 2 },
+    eventualSuccess: { rate: 0.5, low: 0.2, high: 0.8, k: 1, n: 2 },
+    meanCallsPerCompletedTask: 2,
+    meanTokensPerCompletedTask: 120,
+    meanCostPerCompletedTaskUsd: 0.001,
+    tools: [
+      {
+        tool: 'search',
+        calls: 3,
+        errors: 1,
+        failureClasses: { 'execution-error-fatal': 1 },
+        p50Ms: 10,
+        p95Ms: 20,
+        declaredDestructive: false,
+        inferredDestructive: null
+      },
+      {
+        tool: 'fetch',
+        calls: 2,
+        errors: 0,
+        failureClasses: {},
+        p50Ms: 5,
+        p95Ms: 7,
+        declaredDestructive: false,
+        inferredDestructive: null
+      }
+    ],
+    tasks: [
+      {
+        taskId: 'alpha-task',
+        firstTrySuccess: true,
+        success: true,
+        toolCalls: 1,
+        mrtrRounds: 0,
+        inputTokens: 100,
+        outputTokens: 20,
+        costUsd: 0.001,
+        failure: null,
+        destructiveWithoutConfirmation: 0
+      },
+      {
+        taskId: 'beta-task',
+        firstTrySuccess: false,
+        success: false,
+        toolCalls: 3,
+        mrtrRounds: 1,
+        inputTokens: 300,
+        outputTokens: 50,
+        costUsd: 0.004,
+        failure: 'execution-error-fatal',
+        destructiveWithoutConfirmation: 0
+      }
+    ],
+    destructiveWithoutConfirmation: 0,
+    ambiguousParameters: [],
+    schemaDrift: { checked: true, drifted: false, detail: null },
+    toolSurfaceDeltaByCredential: null
+  };
+  return run;
+}
+
+/** Every anchor in a tree that this page focused on one correlation id. */
+function focusedLinks(root) {
+  return flatten(root).filter((node) => hasClass(node, 'is-focused'));
+}
+
+/** The corr parameter of a focused link, decoded. */
+function corrOf(href) {
+  const hash = String(href).split('#')[1] || '';
+  const match = hash.split('&').find((part) => part.startsWith('corr='));
+  return match ? decodeURIComponent(match.slice('corr='.length)) : null;
+}
+
+/** The trace parameter of a link, split on the viewer's merge separator. */
+function tracesOf(href) {
+  const query = String(href).split('#')[0].split('?')[1] || '';
+  const match = query.split('&').find((part) => part.startsWith('trace='));
+  if (!match) return [];
+  return match
+    .slice('trace='.length)
+    .split(';')
+    .map((part) => decodeURIComponent(part));
+}
+
+describe('the deep link url, built from the run and nothing else', () => {
+  it('carries both planes, the events view and the correlation id', () => {
+    const run = linkedRun();
+    const url = focusUrlOf(run, 'alpha-task');
+    expect(url).toBe(
+      'https://replay.fixture.test/?trace=' +
+        `${encodeURIComponent(`${TAPE_HOST}/traces/fixture/mcp.jsonl`)};` +
+        `${encodeURIComponent(`${TAPE_HOST}/traces/fixture/agent.jsonl`)}` +
+        '#view=events&corr=alpha-task'
+    );
+  });
+
+  it('takes the viewer from the record, never from a host written into this page', () => {
+    const run = linkedRun();
+    // This record was published against a different viewer, and its links stay
+    // on that viewer.
+    expect(viewerBaseOf(run)).toBe('https://replay.fixture.test/');
+    expect(focusUrlOf(run, 'alpha-task').startsWith('https://replay.fixture.test/')).toBe(true);
+    // With no recorded viewer the module constant is the fallback, and it is
+    // the only place a viewer host appears at all.
+    delete run.traceLinks.viewer;
+    expect(viewerBaseOf(run)).toBe(VIEWER_BASE);
+    expect(focusUrlOf(run, 'alpha-task').startsWith(VIEWER_BASE)).toBe(true);
+  });
+
+  it('takes the tapes from the record, so no link is ever assembled from a guessed path', () => {
+    const run = linkedRun();
+    run.traceLinks.mcp = 'https://elsewhere.test/a/mcp.jsonl';
+    run.traceLinks.agent = 'https://elsewhere.test/a/agent.jsonl';
+    expect(tracesOf(focusUrlOf(run, 'alpha-task'))).toEqual([
+      'https://elsewhere.test/a/mcp.jsonl',
+      'https://elsewhere.test/a/agent.jsonl'
+    ]);
+  });
+
+  it('percent encodes both halves so the viewer reads back exactly what was published', () => {
+    const run = linkedRun();
+    const url = focusUrlOf(run, 'alpha-task');
+    // The tape urls are encoded: their own separators cannot be read as ours.
+    expect(url).toContain(encodeURIComponent(`${TAPE_HOST}/traces/fixture/mcp.jsonl`));
+    expect(url).not.toContain(`${TAPE_HOST}/traces/fixture/mcp.jsonl`);
+    expect(tracesOf(url)).toEqual([
+      `${TAPE_HOST}/traces/fixture/mcp.jsonl`,
+      `${TAPE_HOST}/traces/fixture/agent.jsonl`
+    ]);
+    // A phase stamped id survives the round trip with its separator intact.
+    run.gates.records = [{ gate: 'construct', ok: true, costTier: 'paid', reason: 'ok', detail: { n: 2 } }];
+    const phased = focusUrlOf(run, 'alpha-task::construct');
+    expect(phased).toContain('corr=alpha-task%3A%3Aconstruct');
+    expect(corrOf(phased)).toBe('alpha-task::construct');
+  });
+
+  it('survives the same url parsing the DOM will do to it', () => {
+    const run = linkedRun();
+    const url = focusUrlOf(run, 'alpha-task');
+    // Every link on this page goes through safeUrl, which round trips through
+    // URL. A link that normalises to something else would be a different link.
+    expect(new URL(url).href).toBe(url);
+  });
+});
+
+describe('the semicolon is the viewer separator, so a tape url that holds one is refused', () => {
+  it('drops the plane that carries it and keeps the plane that does not', () => {
+    const run = linkedRun();
+    run.traceLinks.mcp = `${TAPE_HOST}/traces/fixture;odd/mcp.jsonl`;
+    expect(traceUrlsOf(run)).toEqual([`${TAPE_HOST}/traces/fixture/agent.jsonl`]);
+    const url = focusUrlOf(run, 'alpha-task');
+    expect(tracesOf(url)).toEqual([`${TAPE_HOST}/traces/fixture/agent.jsonl`]);
+    expect(url).not.toContain('fixture;odd');
+  });
+
+  it('refuses the link outright when every published plane carries one', () => {
+    const run = linkedRun();
+    run.traceLinks.mcp = `${TAPE_HOST}/a;b/mcp.jsonl`;
+    run.traceLinks.agent = `${TAPE_HOST}/a;b/agent.jsonl`;
+    expect(traceUrlsOf(run)).toEqual([]);
+    expect(traceParamOf(run)).toBeNull();
+    expect(focusUrlOf(run, 'alpha-task')).toBeNull();
+    expect(buildViewerUrl(run.traceLinks.mcp, run.traceLinks.agent)).toBeNull();
+  });
+
+  it('escapes nothing to get around it, because an escaped separator is a different tape url', () => {
+    const run = linkedRun();
+    run.traceLinks.mcp = `${TAPE_HOST}/a;b/mcp.jsonl`;
+    const url = focusUrlOf(run, 'alpha-task');
+    expect(url).not.toContain('%3B');
+    expect(url).not.toContain(';b');
+  });
+
+  it('renders no link at all rather than a dead one when a run published no tapes', () => {
+    withShimDocument((doc) => {
+      const run = linkedRun();
+      run.traceLinks = null;
+      expect(focusUrlOf(run, 'alpha-task')).toBeNull();
+      expect(replayUrlOf(run)).toBeNull();
+      expect(hasFrameLinks(run)).toBe(false);
+      const host = doc.createElement('div');
+      renderRecord(host, run, {});
+      const anchors = flatten(host).filter((node) => typeof node.href === 'string');
+      expect(anchors.some((node) => node.href.includes('view=events'))).toBe(false);
+      expect(host.textContent).toContain('no recording published');
+      // The legend explains a mark. With no mark to explain it is not printed.
+      expect(host.textContent).not.toContain('opens the recording on that finding');
+    });
+  });
+});
+
+describe('a correlation id is emitted only where the record carries it', () => {
+  it('refuses an id this record does not name', () => {
+    const run = linkedRun();
+    expect(taskIdsOf(run)).toEqual(['alpha-task', 'beta-task']);
+    expect(focusUrlOf(run, 'ghost-task')).toBeNull();
+    expect(focusUrlOf(run, 'alpha-task::construct')).toBeNull();
+    expect(focusUrlOf(run, '')).toBeNull();
+    expect(focusUrlOf(run, null)).toBeNull();
+  });
+
+  it('stamps a phase only where the record shows that pass ran for that task', () => {
+    const run = linkedRun();
+    // No construct record: nothing on this page knows a reference pass ran.
+    expect(correlationIdsOf(run).has('alpha-task::construct')).toBe(false);
+    run.gates.records = [{ gate: 'construct', ok: true, costTier: 'paid', reason: 'ok', detail: { n: 2 } }];
+    expect(correlationIdsOf(run).has('alpha-task::construct')).toBe(true);
+    expect(corrForTask(run, 'alpha-task', 'construct')).toBe('alpha-task::construct');
+    // A phase the record does not evidence falls back to the bare drive id.
+    expect(corrForTask(run, 'alpha-task', 'null-no-tools')).toBe('alpha-task');
+    expect(corrForTask(run, 'ghost-task', 'construct')).toBeNull();
+  });
+
+  it('never puts an unknown correlation in the DOM, across every published run', () => {
+    withShimDocument((doc) => {
+      const { roots } = everyRecord(doc);
+      let focused = 0;
+      for (let i = 0; i < roots.length; i++) {
+        const known = correlationIdsOf(RUNS[i]);
+        const published = new Set(traceUrlsOf(RUNS[i]));
+        for (const node of focusedLinks(roots[i])) {
+          focused += 1;
+          const corr = corrOf(node.href);
+          expect(corr).toBeTruthy();
+          expect(known.has(corr)).toBe(true);
+          // And the frames it opens are this run's own tapes, nobody else's.
+          for (const trace of tracesOf(node.href)) expect(published.has(trace)).toBe(true);
+        }
+      }
+      expect(focused).toBeGreaterThan(50);
+    });
+  });
+});
+
+describe('per task rows open on their own frames', () => {
+  const scored = RUNS.filter((run) => run.outcome === 'SCORED');
+
+  it('finds published runs that carry tasks', () => {
+    expect(scored.length).toBeGreaterThan(0);
+  });
+
+  it('gives every task of every scored run a row and a link keyed to that task', () => {
+    withShimDocument((doc) => {
+      for (const run of scored) {
+        const host = doc.createElement('div');
+        renderRecord(host, run, {});
+        const text = host.textContent;
+        const corrs = new Set(focusedLinks(host).map((node) => corrOf(node.href)));
+        for (const task of run.score.tasks) {
+          expect(text).toContain(task.taskId);
+          expect(corrs.has(task.taskId)).toBe(true);
+        }
+      }
+    });
+  });
+
+  it('says the run was refused before the drive instead of printing an empty table', () => {
+    withShimDocument((doc) => {
+      const run = RUNS.find((r) => r.outcome !== 'SCORED');
+      const host = doc.createElement('div');
+      renderRecord(host, run, {});
+      expect(host.textContent).toContain('no per task rows exist for a run that was refused before the drive');
+    });
+  });
+});
+
+describe('per tool rows pin a task only where the record forces the pairing', () => {
+  it('pins the tool that is the only one to have recorded the class a task failed with', () => {
+    const attribution = toolTaskAttribution(linkedRun());
+    expect(attribution.get('search').ids).toEqual(['beta-task']);
+    expect(attribution.get('search').why).toContain('only tool that recorded execution-error-fatal');
+    // The tool with no failures of its own is not pinned to anything.
+    expect(attribution.has('fetch')).toBe(false);
+  });
+
+  it('pins neither tool when two of them recorded the same class', () => {
+    const run = linkedRun();
+    run.score.tools[1].failureClasses = { 'execution-error-fatal': 1 };
+    run.score.tools[1].errors = 1;
+    expect(toolTaskAttribution(run).size).toBe(0);
+  });
+
+  it('takes the record at its word when the tool row names its own tasks', () => {
+    const run = linkedRun();
+    run.score.tools[1].taskIds = ['alpha-task', 'ghost-task'];
+    const pinned = toolTaskAttribution(run).get('fetch');
+    // The named id that this record does not carry is dropped, not linked.
+    expect(pinned.ids).toEqual(['alpha-task']);
+  });
+
+  it('leaves an unpinned row on the run and says why, rather than borrowing a correlation', () => {
+    withShimDocument((doc) => {
+      const host = doc.createElement('div');
+      renderRecord(host, linkedRun(), {});
+      const text = host.textContent;
+      expect(text).toContain('this record does not say which tasks called it');
+      expect(text).toContain('a correlation this page had to guess at is not evidence');
+    });
+  });
+
+  it('holds on the published data: two runs force a pairing, the rest stay on the run', () => {
+    const pinned = RUNS.filter((run) => toolTaskAttribution(run).size > 0);
+    expect(pinned.length).toBeGreaterThan(0);
+    for (const run of pinned) {
+      const known = new Set(taskIdsOf(run));
+      for (const [, entry] of toolTaskAttribution(run)) {
+        expect(entry.ids.length).toBeGreaterThan(0);
+        for (const id of entry.ids) expect(known.has(id)).toBe(true);
+      }
+    }
+    // Every tool row that was not forced is still a link, to the whole run.
+    for (const run of RUNS.filter((r) => r.outcome === 'SCORED')) {
+      const attribution = toolTaskAttribution(run);
+      for (const tool of run.score.tools) {
+        if (attribution.has(tool.tool)) continue;
+        expect(replayUrlOf(run)).toBeTruthy();
+      }
+    }
+  });
+});
+
+describe('gate rows link a phase the tape carries, or nothing at all', () => {
+  it('opens on the task a gate record names, stamped with that gate own phase', () => {
+    const run = linkedRun();
+    const construct = { gate: 'construct', ok: false, costTier: 'paid', reason: 'below_threshold', detail: { n: 2, taskId: 'beta-task' } };
+    run.gates.records = [construct];
+    expect(gateFocusCorr(run, construct)).toBe('beta-task::construct');
+  });
+
+  it('falls back to the bare drive id for a gate whose pass stamps no phase', () => {
+    const run = linkedRun();
+    const leak = { gate: 'answer_leak', ok: false, costTier: 'free', reason: 'leak', detail: { leaks: [{ taskId: 'alpha-task' }] } };
+    run.gates.records = [leak];
+    expect(gateFocusCorr(run, leak)).toBe('alpha-task');
+  });
+
+  it('resolves a null baseline row only when it names both the baseline and the task', () => {
+    const run = linkedRun();
+    const named = {
+      gate: 'null_baseline',
+      ok: false,
+      costTier: 'cheap',
+      reason: 'noise_exceeds_signal',
+      detail: { rates: [{ label: 'no-tools', taskId: 'alpha-task', k: 1, n: 2, rate: 0.5 }] }
+    };
+    run.gates.records = [named];
+    expect(gateFocusCorr(run, named)).toBe('alpha-task::null-no-tools');
+    // The published shape names the baseline and no task, which is not a
+    // correlation, so the row keeps the whole run.
+    const unnamed = {
+      gate: 'null_baseline',
+      ok: false,
+      costTier: 'cheap',
+      reason: 'noise_exceeds_signal',
+      detail: { rates: [{ label: 'no-tools', k: 1, n: 2, rate: 0.5 }] }
+    };
+    run.gates.records = [unnamed];
+    expect(gateFocusCorr(run, unnamed)).toBeNull();
+  });
+
+  it('invents nothing for a gate that names a task this record does not carry', () => {
+    const run = linkedRun();
+    const record = { gate: 'construct', ok: false, costTier: 'paid', reason: 'x', detail: { n: 2, taskId: 'ghost-task' } };
+    run.gates.records = [record];
+    expect(gateFocusCorr(run, record)).toBeNull();
+  });
+
+  it('leaves every published gate row on the run, because none of them names a task', () => {
+    for (const run of RUNS) {
+      for (const record of (run.gates && run.gates.records) || []) {
+        expect(gateFocusCorr(run, record)).toBeNull();
+      }
+    }
+  });
+});
+
+describe('extension batches open task by task', () => {
+  const extended = RUNS.filter((run) => Array.isArray(run.gates && run.gates.extensions) && run.gates.extensions.length > 0);
+
+  it('finds a published run that bought batches', () => {
+    expect(extended.length).toBeGreaterThan(0);
+  });
+
+  it('links every pooled task id a batch bought, on the reference pass phase', () => {
+    withShimDocument((doc) => {
+      for (const run of extended) {
+        const host = doc.createElement('div');
+        renderRecord(host, run, {});
+        const corrs = new Set(focusedLinks(host).map((node) => corrOf(node.href)));
+        for (const batch of run.gates.extensions) {
+          for (const id of batch.taskIds || []) {
+            expect(corrs.has(`${id}::construct`)).toBe(true);
+          }
+        }
+      }
+    });
+  });
+
+  it('carries the pooled task ids onto the ledger so the fold can link them', () => {
+    const ledger = extensionLedgerOf(extendedRun(), 'construct');
+    expect(ledger.batches[0].taskIds).toEqual(['e1-a', 'e1-b', 'e1-c', 'e1-d', 'e1-e', 'e1-f']);
+  });
+
+  it('prints the task names, not a row of dead markers, when the run published no tape', () => {
+    withShimDocument((doc) => {
+      const run = extendedRun();
+      run.traceLinks = null;
+      const host = doc.createElement('div');
+      renderRecord(host, run, {});
+      expect(focusedLinks(host)).toHaveLength(0);
+      // The batch still names what it bought, so the ledger stays readable.
+      for (const id of run.gates.extensions[0].taskIds) expect(host.textContent).toContain(id);
+    });
+  });
+
+  it('links the task a free gate violation names, and prints a named task it cannot place', () => {
+    withShimDocument((doc) => {
+      const run = extendedRun();
+      run.traceLinks = {
+        mcp: `${TAPE_HOST}/traces/extended/mcp.jsonl`,
+        agent: `${TAPE_HOST}/traces/extended/agent.jsonl`,
+        viewer: null
+      };
+      run.gates.extensions[0].violations = [
+        { gate: 'answer_leak', taskId: 'e1-c', reason: 'leak', detail: 'the prompt carried the answer' },
+        { gate: 'answer_leak', taskId: 'never-generated', reason: 'leak', detail: 'names a task this record does not carry' }
+      ];
+      run.gates.records[0].detail.extensions = run.gates.extensions;
+      const host = doc.createElement('div');
+      renderRecord(host, run, {});
+      const corrs = new Set(focusedLinks(host).map((node) => corrOf(node.href)));
+      expect(corrs.has('e1-c::construct')).toBe(true);
+      expect([...corrs].some((corr) => String(corr).startsWith('never-generated'))).toBe(false);
+      // Named and unplaceable is printed, so the violation is not silently lost.
+      expect(host.textContent).toContain('never-generated');
+    });
+  });
+});
+
+describe('findings that name their evidence in prose', () => {
+  it('opens an ambiguous parameter on the tasks its evidence string names', () => {
+    withShimDocument((doc) => {
+      const run = linkedRun();
+      run.score.ambiguousParameters = [
+        { tool: 'search', param: 'user', why: 'user_id is the fix', evidence: 'wrong argument on beta-task' },
+        { tool: 'fetch', param: 'id', why: 'ambiguous', evidence: 'seen across the drive' }
+      ];
+      const host = doc.createElement('div');
+      renderRecord(host, run, {});
+      const corrs = new Set(focusedLinks(host).map((node) => corrOf(node.href)));
+      expect(corrs.has('beta-task')).toBe(true);
+      expect(host.textContent).toContain('wrong argument on beta-task');
+      // The second names nothing, so it keeps the run level link.
+      expect(host.textContent).toContain('seen across the drive');
+    });
+  });
+
+  it('opens a rewrite on the sessions its causal evidence names', () => {
+    withShimDocument((doc) => {
+      const run = linkedRun();
+      run.rewrites = [
+        {
+          tool: 'search',
+          current: 'search things',
+          proposed: 'search the docs index by query',
+          causalEvidence: 'caused the wrong tool choice on alpha-task and beta-task'
+        }
+      ];
+      const host = doc.createElement('div');
+      renderRecord(host, run, {});
+      const corrs = new Set(focusedLinks(host).map((node) => corrOf(node.href)));
+      expect(corrs.has('alpha-task')).toBe(true);
+      expect(corrs.has('beta-task')).toBe(true);
+    });
+  });
+
+  it('matches a whole task id and never a fragment of a longer one', () => {
+    const run = linkedRun();
+    run.score.tasks.push({
+      taskId: 'alpha-task-two',
+      firstTrySuccess: true,
+      success: true,
+      toolCalls: 1,
+      mrtrRounds: 0,
+      inputTokens: 1,
+      outputTokens: 1,
+      costUsd: 0.0001,
+      failure: null,
+      destructiveWithoutConfirmation: 0
+    });
+    expect(taskIdsNamedIn('failed on alpha-task-two', run)).toEqual(['alpha-task-two']);
+    expect(taskIdsNamedIn('failed on alpha-task.', run)).toEqual(['alpha-task']);
+    expect(taskIdsNamedIn('nothing named here', run)).toEqual([]);
+    expect(taskIdsNamedIn('', run)).toEqual([]);
+    expect(taskIdsNamedIn(null, run)).toEqual([]);
+  });
+});
+
+describe('the reader can tell a deep link from a whole recording', () => {
+  it('marks every focused link and explains the mark once per record', () => {
+    withShimDocument((doc) => {
+      const { roots } = everyRecord(doc);
+      let marked = 0;
+      for (let i = 0; i < roots.length; i++) {
+        const focused = focusedLinks(roots[i]);
+        for (const node of focused) {
+          expect(node.textContent).toContain('its frames');
+          expect(node.title).toContain('not the whole session');
+          marked += 1;
+        }
+        // The legend appears exactly where a mark can appear, and nowhere else.
+        const explained = roots[i].textContent.includes('opens the recording on that finding');
+        expect(explained).toBe(hasFrameLinks(RUNS[i]));
+        if (focused.length > 0) expect(explained).toBe(true);
+      }
+      expect(marked).toBeGreaterThan(50);
+    });
+  });
+
+  it('keeps the accessible name of a focused link, and adds the frames it opens on', () => {
+    withShimDocument((doc) => {
+      const { roots } = everyRecord(doc);
+      for (const root of roots) {
+        for (const node of focusedLinks(root)) {
+          const label = node.getAttribute('aria-label');
+          expect(label).toContain('Opens the recorded session in a new tab');
+          expect(label).toContain(`on the frames stamped ${corrOf(node.href)}`);
+        }
+      }
+    });
+  });
+
+  it('opens in a new tab with the same safety as every other link on the page', () => {
+    withShimDocument((doc) => {
+      const { roots } = everyRecord(doc);
+      for (const root of roots) {
+        for (const node of focusedLinks(root)) {
+          expect(node.target).toBe('_blank');
+          expect(node.rel).toBe('noopener noreferrer');
+        }
+      }
+    });
+  });
+
+  it('gives the mark and its link a real target in both themes', () => {
+    const css = readFileSync(here('../site/style.css'), 'utf8');
+    // The focused state is a variation on .evidence, which already carries the
+    // 44px target, and it is drawn from tokens rather than from a fixed colour.
+    expect(css).toContain('.evidence.is-focused');
+    expect(css).toContain('.evidence-mark');
+    const evidenceRule = css.slice(css.indexOf('.evidence {'), css.indexOf('.evidence:hover'));
+    expect(evidenceRule).toContain('min-height: 44px');
+    const focusedRule = css.slice(css.indexOf('.evidence.is-focused {'), css.indexOf('.evidence-mark {'));
+    expect(focusedRule).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(focusedRule).toContain('var(--measure');
+    // Frame links sit in a wrapping set and keep the same target each.
+    expect(css).toContain('.frame-links .evidence');
+  });
+});
+
+/**
+ * The methods page publishes the failure record, so it is held to the standard
+ * it argues for. Nothing else in the suite reads it, which was itself one of
+ * the open entries on the page when it shipped.
+ */
+describe('methods page', () => {
+  it('publishes one article per failure record entry and says how many', () => {
+    const articles = METHODS_SOURCE.match(/<article class="fail"/g) || [];
+    expect(articles.length).toBeGreaterThan(0);
+    // Both surfaces state the count, and a reader who counts the articles must
+    // arrive at the same number.
+    const stated = METHODS_SOURCE.match(/(\d+)\s+entries/);
+    expect(stated).not.toBeNull();
+    expect(Number(stated[1])).toBe(articles.length);
+    const fromIndex = INDEX_SOURCE.match(/(\d+)\s+entries/);
+    if (fromIndex) expect(Number(fromIndex[1])).toBe(articles.length);
+  });
+
+  it('gives every entry its own evidence block', () => {
+    const articles = (METHODS_SOURCE.match(/<article class="fail"/g) || []).length;
+    const evidence = (METHODS_SOURCE.match(/Evidence/g) || []).length;
+    expect(evidence).toBeGreaterThanOrEqual(articles);
+  });
+
+  it('carries no em-dash on either published HTML surface', () => {
+    expect(METHODS_SOURCE).not.toContain('\u2014');
+    expect(INDEX_SOURCE).not.toContain('\u2014');
+  });
+
+  it('never claims our own work is conformance or compliance testing', () => {
+    // The word itself is allowed, and is load bearing: the approved line
+    // "Conformance asks whether the server speaks MCP correctly" exists to hand
+    // that word to the official suite. What is banned is claiming it for us.
+    const banned = [
+      'our conformance',
+      'we test conformance',
+      'conformance testing for your',
+      'compliance test',
+      'compliance suite',
+      'our compliance'
+    ];
+    for (const source of [METHODS_SOURCE, INDEX_SOURCE]) {
+      const lower = source.toLowerCase();
+      for (const phrase of banned) expect(lower).not.toContain(phrase);
+      // Every mention still has to sit near the disclaimer or the official name.
+      if (lower.includes('conformance')) {
+        expect(lower).toMatch(/modelcontextprotocol\/conformance|official suite|different project/);
+      }
+    }
+  });
+
+  it('uses no generator version label the published records do not carry', () => {
+    // runs.json holds exactly two states: no field, or the recorded version
+    // string. A bare v1/v2/v3 label is not checkable from the data.
+    const recorded = new Set(RUNS.map((run) => (run && run.run && run.run.generatorVersion) || '(absent)'));
+    for (const label of recorded) {
+      if (label !== '(absent)') expect(typeof label).toBe('string');
+    }
+    expect(METHODS_SOURCE).not.toMatch(/\bv[123]\b/);
+  });
+
+  it('resolves every in-page anchor it links to', () => {
+    const ids = new Set((METHODS_SOURCE.match(/id="([^"]+)"/g) || []).map((m) => m.slice(4, -1)));
+    const hrefs = (METHODS_SOURCE.match(/href="#([^"]+)"/g) || []).map((m) => m.slice(7, -1));
+    for (const href of hrefs) expect(ids.has(href)).toBe(true);
   });
 });
