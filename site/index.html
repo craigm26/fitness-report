@@ -73,7 +73,14 @@
       Rows are listed by the first-try point estimate, but a row only takes a lower position when another
       interval sits entirely above it. Rows that nothing separates share a position and are marked as tied,
       and where two rows still overlap across positions the lower one says so on its own row. Servers scored
-      under different runner models are never ranked against each other.
+      under different runner models, or with suites built by different task generators, are never ranked
+      against each other. Both are printed on the section heading and on every row.
+    </p>
+    <p class="table-foot">
+      Where a server has been run more than once, every run of it is here. Each row prints its own suite
+      hash and start time and says which attempt it is, so two runs of one server read as two attempts
+      rather than as unrelated rows. Reruns are separate attempts and not a best of: no earlier run is
+      replaced or hidden by a later one.
     </p>
     <p class="table-foot">
       Every refused row opens on <span class="legend-key">Why refused</span>. What you get there is read from
@@ -192,10 +199,94 @@
       across generator versions.
     </p>
     <p>
+      Every row therefore carries its task generator as a badge, scored or refused, and the sections of the
+      table are split on it: rows built by one generator are only ever ranked or read against rows built by
+      the same one. Records written before that field existed are badged as generator not recorded rather
+      than assumed to be the older version, and they sit in their own section for the same reason. Each
+      row's own method notes state which screen and which extension protocol were registered for it, in the
+      run's own words.
+    </p>
+    <p>
       A suite the screen empties is its own finding rather than a thin surface. It refuses as DEGENERATE
       with the reason <code>all_candidates_null_answerable</code> and the screen ledger behind it, because
       "we generated enough tasks and a model answered them all with no server at all" is a statement about
       what the server adds, not about how many tools it has.
+    </p>
+
+    <h3>Extensions, and why EXTEND is not a second chance</h3>
+    <p>
+      The extension size and the maximum number of extensions are fixed in the pre-registration alongside
+      n, before the first call, and both are written into the run record where you can read them. A gate
+      that the registered sample cannot resolve either way is not re-run until it resolves: it consumes a
+      registered extension batch, and after the last extension a gate that is still unresolved resolves to
+      FAIL, which refuses the run as <code>GATE_FAILED</code>. Inside a run there is no optional stopping.
+      A run completes its registered size or it is void, and a regenerated task suite is a new run under a
+      new suite hash rather than another attempt at this one.
+    </p>
+    <p>
+      When a run did consume extensions, its panel prints the whole sequence rather than the pooled number
+      alone: what the gate stood at on the registered size, how many tasks each batch added and how many
+      pooled trials they came to, what the pool moved to, and what that pooled count resolved to. Tasks and
+      trials are printed as two numbers because they are two numbers: each task is driven at the registered
+      reps, so a batch of six tasks can contribute eighteen trials to the pool, and one figure labelled
+      both would misstate every batch.
+    </p>
+    <p>
+      That leaves one narrow use for <code>EXTEND_EXHAUSTED</code>: a pre-registration that bought no
+      extension batch at all. With nothing to spend, a gate that resolves neither way is refused where it
+      stands. So the outcome always means the same thing, in every era of this harness, which is that the
+      gate resolved neither way and there was no batch available to buy. It has never meant that a gate was
+      extended until it looked decisive.
+    </p>
+    <p>
+      Rows recorded before the extension protocol ran also carry <code>EXTEND_EXHAUSTED</code>, and they are
+      not relabelled. Their records carry a zero policy and nothing else about the protocol: no registered
+      batch size, no protocol statement on the gate that could have bought one, and no ledger. The
+      arithmetic is the same as a pre-registration that buys none, and the record does not distinguish the
+      two, so each such row says exactly that in its own panel, read from its own fields rather than from a
+      list of server names kept anywhere on this page. Their counts are untouched: they are what the gate
+      measured on the day.
+    </p>
+
+    <h3>More than one run of the same server</h3>
+    <p>
+      A server can be driven again at any time, and several here have been. Each drive generates its own
+      task suite under its own hash, so two runs of one server are two measurements and never two views of
+      one. Every row therefore prints the run behind it, not just the server: the task generator as a badge,
+      the suite hash, and the time the drive started. Where a server has more than one published run, each
+      of its rows says which attempt it is and names the others, including where they sit in another section
+      of the table.
+    </p>
+    <p>
+      Reruns are separate attempts, not a best of. The pre-registration binds what happens inside one run;
+      it does not bind how many runs are attempted, and this page does not pretend otherwise. What it does
+      instead is publish all of them: an earlier run is never replaced, hidden or folded into a later one,
+      whatever its outcome was, and no row on this page was selected over another run of the same server.
+    </p>
+
+    <h3>What a cost figure on this page covers</h3>
+    <p>
+      Every run uses two models. The runner drives the server and its turns are on the agent tape, so its
+      tokens are counted and priced from the record. The judge synthesises the task suite and produces the
+      destructiveness signal before the drive begins, and it writes to neither tape. A total summed from the
+      tapes is therefore the runner's spend and not the run's.
+    </p>
+    <p>
+      So a dollar figure appears here only where the record supports it, labelled measured, and it is built
+      from the runner's recorded tokens plus judge usage on the runs that record it. Everything known to sit
+      outside that figure is named without a number: judge spend on runs that do not record it, the
+      generation time null screen calls that are written to neither plane, and any model on a tape with no
+      price on file. A flat per run assumption is not a measurement, and this page publishes none.
+    </p>
+    <p>
+      A figure is called a total only when nothing known is missing from it. Every other figure is labelled
+      a floor and printed as <em>at least</em>, with the reason it is one. The reasons come from the record:
+      judge usage the harness marked partial, a judge model in the usage breakdown with no price on file,
+      judge calls that came back with no usage block at all, calls that threw before reporting any, and the
+      same on the tape side. Each of those means dollars were spent that are not in the number, so the
+      number is a lower bound and says so. A floor printed as a total is a wrong figure wearing a right
+      label, and it is the one thing this block exists to stop. Where nothing in a record can support a
+      figure at all, no figure is printed and the panel says why.
     </p>
 
     <h3>Two documented divergences from evalgate</h3>

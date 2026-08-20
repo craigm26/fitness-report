@@ -607,6 +607,28 @@ section {
   letter-spacing: -0.01em;
 }
 
+/* which task generator built this row's suite: two versions are two
+   denominators, so the row carries it whether or not it is ranked */
+
+.gen-chip {
+  display: inline-block;
+  margin-top: 5px;
+  padding: 1px 7px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.gen-chip-unknown {
+  border-style: dotted;
+  color: var(--faint);
+}
+
 .server-url {
   margin-top: 2px;
   font-size: 12px;
@@ -617,6 +639,39 @@ section {
   margin-top: 6px;
   font-size: 12px;
   color: var(--muted);
+}
+
+/* which RUN this row is: a server can be driven again at any time, so the row
+   carries the suite it drove and when the drive started */
+
+.run-identity {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* reruns are separate attempts, marked on every row they produced */
+
+.rerun-chip {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px dashed var(--line-strong);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rerun-siblings {
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--faint);
+  overflow-wrap: anywhere;
 }
 
 /* outcome cell */
@@ -992,6 +1047,15 @@ section {
   opacity: 0.92;
 }
 
+/* an outcome whose meaning is read against the record that carries it, rather
+   than against the harness that happens to be current */
+
+.story.outcome-reading {
+  opacity: 1;
+  border-left: 2px solid var(--line-strong);
+  padding-left: 12px;
+}
+
 .story-head {
   display: flex;
   flex-wrap: wrap;
@@ -1249,7 +1313,79 @@ section {
   max-width: 60ch;
 }
 
-/* report.methods, verbatim: the harness's own divergences and known biases */
+/* what the run cost, and the extension ledger: both span the panel because
+   both are read as sentences rather than scanned as a column */
+
+.panel-cost,
+.panel-extensions {
+  grid-column: 1 / -1;
+}
+
+/* report.methods, verbatim: the harness's own divergences and known biases.
+   Collapsible and open, so a reader can fold it away but is never asked to
+   go looking for the disclosure that qualifies every number above it. */
+
+.panel-methods {
+  grid-column: 1 / -1;
+}
+
+.methods-details {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.methods-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 0;
+}
+
+.methods-summary::-webkit-details-marker {
+  display: none;
+}
+
+.methods-summary::before {
+  content: "-";
+  font-family: var(--mono);
+  color: var(--faint);
+}
+
+.methods-details:not([open]) .methods-summary::before {
+  content: "+";
+}
+
+.methods-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.methods-title {
+  font-size: 12px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.methods-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.methods-registered {
+  margin-top: 10px;
+}
+
+.methods-registered dd {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--text-soft);
+  max-width: 78ch;
+}
 
 .methods-list {
   margin: 8px 0 0;

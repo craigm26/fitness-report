@@ -565,6 +565,69 @@ export function computeSuiteHash(
   return sha256Hex(canonicalJson({ generator, seed, tasks }));
 }
 
+/**
+ * The hash of a POOLED suite: the original suite plus every extension batch the
+ * pre-registered protocol consumed.
+ *
+ * It is deliberately NOT `computeSuiteHash(pooledTasks, generator, seed)`: the
+ * pooled set was produced by several generator configs (one per derived seed),
+ * and stamping one config over all of them would claim a provenance the run does
+ * not have. The preimage is the lineage itself, so the hash changes when the
+ * original changes, when a batch changes, or when the pooled task list changes,
+ * and any reader holding suite-meta.json can recompute it.
+ */
+export function computePooledSuiteHash(input: {
+  originalSuiteHash: string;
+  batchSuiteHashes: readonly (string | null)[];
+  tasks: readonly FitnessTask[];
+}): string {
+  return sha256Hex(
+    canonicalJson({
+      kind: 'fitness-report.pooled-suite/1',
+      originalSuiteHash: input.originalSuiteHash,
+      batchSuiteHashes: input.batchSuiteHashes,
+      tasks: input.tasks,
+    }),
+  );
+}
+
+/**
+ * The CONTENT identity of a task, for pool dedupe across extension batches.
+ *
+ * WHY IT IS NOT THE ID. The extension protocol prefixes every batch task with a
+ * deterministic `e<index>-`, which is exactly what keeps two tasks from sharing
+ * a correlation id, and it is also what makes a restated task invisible: a
+ * generator asked a second time for six tasks will happily hand back a task the
+ * pool already holds, `t3` becomes `e1-t3`, no id collides, and the pooled n
+ * grows by a trial that is perfectly correlated with one already counted. A
+ * pooled denominator built that way is not a denominator.
+ *
+ * THE KEY, exactly: canonical JSON (keys sorted, so the ordering of the check
+ * object cannot change the key) over three fields.
+ *   - `prompt`: the RENDERED prompt, whitespace runs collapsed to one space,
+ *     trimmed and case folded. Two statements of one task differ by spacing and
+ *     capitalisation at most; anything past that is a different task.
+ *   - `expectedTools`: de-duplicated and sorted, because [a,b] and [b,a] name
+ *     the same solution.
+ *   - `check`: verbatim. A different success predicate is a different trial
+ *     even over the same prompt.
+ *
+ * `answerKey` is deliberately absent: two tasks that pose the same question
+ * with the same predicate are the same trial, and if their keys disagree then
+ * one of them is wrong, which is not a reason to count both.
+ *
+ * Collisions fail SAFE. A false match drops a batch task (recorded, with its
+ * own reason), which shrinks a batch; it can never inflate a pooled count.
+ */
+export function taskContentKey(task: Pick<FitnessTask, 'prompt' | 'expectedTools' | 'check'>): string {
+  return canonicalJson({
+    kind: 'fitness-report.task-content/1',
+    prompt: task.prompt.replace(/\s+/g, ' ').trim().toLowerCase(),
+    expectedTools: [...new Set(task.expectedTools)].sort(),
+    check: task.check,
+  });
+}
+
 export function toolSurfaceDigest(tools: readonly ToolSurfaceEntry[]): string {
   const normalized = [...tools]
     .map((t) => ({
@@ -2127,4 +2190,66 @@ export async function synthesizeTaskSuite(
     generator,
     surface: { toolCount: opts.tools.length, toolNames: opts.tools.map((t) => t.name) },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Extension batches (the pre-registered extension protocol)
+// ---------------------------------------------------------------------------
+
+/**
+ * The derived seed for one extension batch.
+ *
+ * `seed + 1000 * index`, with `index` 1-BASED, because a 0-based index would
+ * hand extension 1 the original suite's own seed and the generator would be
+ * asked to produce the batch it already produced. The offset of 1000 keeps the
+ * derived seeds of two runs one apart (seed 1 and seed 2) from colliding for any
+ * plausible number of extensions.
+ *
+ * Deterministic on purpose: the batch a run bought is reproducible from the run
+ * record alone, which is the whole point of pre-registering the protocol.
+ */
+export function extensionSeed(baseSeed: number, extensionIndex: number): number {
+  if (!Number.isInteger(extensionIndex) || extensionIndex < 1) {
+    throw new RangeError(`extensionSeed: extensionIndex must be an integer >= 1, got ${String(extensionIndex)}`);
+  }
+  return baseSeed + 1000 * extensionIndex;
+}
+
+export interface ExtensionBatchOptions extends Omit<SynthesizeOptions, 'seed' | 'targetTaskCount' | 'minTasks'> {
+  /** The run's registered seed. The batch seed is derived from it, never reused. */
+  baseSeed: number;
+  /** 1-based index of this extension. */
+  extensionIndex: number;
+  /** `extensionSize` from the pre-registration. Both the target and the floor. */
+  extensionSize: number;
+}
+
+/**
+ * Generate ONE extension batch.
+ *
+ * Same generator version, same prompt, same check policy, same null screen, same
+ * tool surface: the only registered thing that moves is the seed, which is
+ * derived, and the size, which is `extensionSize` rather than the run's target.
+ * That makes a batch comparable to the suite it extends, which is what pooling
+ * counts across the two requires.
+ *
+ * `minTasks` is set to `extensionSize` so `insufficient` on the result means
+ * exactly one thing: THIS BATCH CAME BACK SHORT. A short batch is not an error
+ * and is never retried (a retry would be optional stopping by another name); the
+ * caller uses whatever survived and records the shortfall.
+ */
+export async function synthesizeExtensionBatch(
+  client: JudgeClient,
+  opts: ExtensionBatchOptions,
+): Promise<SynthesisResult> {
+  const { baseSeed, extensionIndex, extensionSize, ...rest } = opts;
+  if (!Number.isInteger(extensionSize) || extensionSize < 1) {
+    throw new RangeError(`synthesizeExtensionBatch: extensionSize must be an integer >= 1, got ${String(extensionSize)}`);
+  }
+  return synthesizeTaskSuite(client, {
+    ...rest,
+    seed: extensionSeed(baseSeed, extensionIndex),
+    targetTaskCount: extensionSize,
+    minTasks: extensionSize,
+  });
 }

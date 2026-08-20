@@ -14,9 +14,12 @@
  */
 
 import type {
+  ExtensionEvidence,
+  ExtensionPolicy,
   FitnessReportJson,
   GateLedger,
   GateRecord,
+  JudgeUsageBlock,
   ProbeResults,
   RunOutcome,
   ScoreBlock,
@@ -44,6 +47,8 @@ export interface ReportInput {
   /** Task generator version. Rows from different generators are never ranked together. */
   generatorVersion?: string | null;
   nullScreenEnabled?: boolean;
+  /** Measured judge spend. Absent when the run made no judge-tier call. */
+  judgeUsage?: JudgeUsageBlock;
   server: ServerIdentity;
   probes: ProbeResults;
   gates: GateLedger;
@@ -73,7 +78,11 @@ export function buildReport(input: ReportInput): FitnessReportJson {
       // Written whenever the caller knows it. A run whose synthesis threw has
       // no generator to name, and `null` says that rather than guessing.
       ...(input.generatorVersion === undefined ? {} : { generatorVersion: input.generatorVersion }),
-      ...(input.nullScreenEnabled === undefined ? {} : { nullScreenEnabled: input.nullScreenEnabled })
+      ...(input.nullScreenEnabled === undefined ? {} : { nullScreenEnabled: input.nullScreenEnabled }),
+      // Measured, never a per-run guess, and absent when there was nothing to
+      // measure. It is NOT in trace_stats: no judge call reaches a tape, so a
+      // total for the run is the trace_stats cost plus this one.
+      ...(input.judgeUsage === undefined ? {} : { judgeUsage: input.judgeUsage })
     },
     probes: input.probes,
     gates: input.gates,
@@ -135,6 +144,105 @@ function gateRow(record: GateRecord): string {
   return `| ${record.gate} | ${record.costTier} | ${status} | ${record.reason}${verdict} |`;
 }
 
+/**
+ * The extension protocol, described as the thing that RUNS.
+ *
+ * The v0 copy said no extension batch is ever run, which stopped being true the
+ * day the loop landed, and a methods section that describes a procedure the run
+ * did not perform is the same defect in the other direction. Every number here
+ * comes off the persisted pre-registration, so the copy cannot drift from the
+ * policy the run actually committed to before its first model call.
+ */
+export function extensionCopy(gates: GateLedger): string[] {
+  const { extensionSize, maxExtensions } = gates.extensionPolicy;
+  if (maxExtensions === 0 || extensionSize === 0) {
+    return [
+      'Extension policy, fixed before the first model call: no extension batches. A gate the data cannot ' +
+        'resolve resolves immediately and the run is refused rather than extended.'
+    ];
+  }
+  const consumed = gates.extensions ?? [];
+  const lines = [
+    `Extension policy, fixed before the first model call: ${extensionSize} new tasks per extension, at most ` +
+      `${maxExtensions}. An under-resolved gate buys one batch from the same generator at a derived seed, past the ` +
+      'same free gates and the same null baselines, run at the same reps. The verdict is then the three-outcome ' +
+      'rule applied to the POOLED counts, and the score covers the pooled suite. After the last extension an ' +
+      'unresolved gate resolves to FAIL. The size and the maximum are not operator settings and a suite ' +
+      'regenerated outside this protocol is a new run, never a retry.',
+    'The free gates screen a bought batch with the SAME consequences they carry on the registered suite. An ' +
+      'answer key an agent could read, or a task that violates the structural property, refuses the whole run and ' +
+      'names the batch and the task. Ordinary admission drops, generation-time null screen deletions, and tasks ' +
+      'that restate one already in the pool are dropped and counted, never refused.'
+  ];
+  if (consumed.length === 0) {
+    lines.push('No extension was consumed on this run.');
+    return lines;
+  }
+  lines.push('');
+  lines.push('| extension | seed | tasks pooled | pooled before | pooled after | note |');
+  lines.push('| --- | --- | --- | --- | --- | --- |');
+  for (const e of consumed) {
+    lines.push(
+      `| ${e.index} of ${maxExtensions} | ${e.seed} | ${e.admitted} of ${e.generated}${e.short ? ' (short)' : ''} | ` +
+        `${e.pooledBefore.k} of ${e.pooledBefore.n}${e.verdictBefore === null ? '' : `, ${e.verdictBefore}`} | ` +
+        `${e.pooledAfter.k} of ${e.pooledAfter.n}${e.verdictAfter === null ? '' : `, ${e.verdictAfter}`} | ` +
+        `${cell(extensionNote(e))} |`
+    );
+  }
+  return lines;
+}
+
+/**
+ * Why a batch produced what it produced.
+ *
+ * A batch that could not be generated at all, and a batch voided by a free-gate
+ * violation, both publish as `0 of 0` or `0 of 6` in the counts. Without this
+ * the reader sees an unexplained short row and the most important thing the
+ * extension protocol can find (the generator handed us a leaking task) is
+ * legible only to someone who opens the JSON.
+ */
+export function extensionNote(e: ExtensionEvidence): string {
+  const notes: string[] = [];
+  if (typeof e.failure === 'string' && e.failure.length > 0) {
+    notes.push(`batch not generated: ${e.failure}`);
+  }
+  for (const violation of e.violations ?? []) {
+    notes.push(`REFUSED at ${violation.gate}: ${violation.taskId}, ${violation.reason}`);
+  }
+  const duplicate = e.dropped.duplicate ?? 0;
+  if (duplicate > 0) {
+    notes.push(`${duplicate} task(s) already in the pool, dropped as duplicates`);
+  }
+  if (e.dropped.admission > 0) notes.push(`${e.dropped.admission} dropped at admission`);
+  if (e.dropped.nullScreen > 0) notes.push(`${e.dropped.nullScreen} deleted by the null screen`);
+  return notes.length === 0 ? 'clean batch' : notes.join('; ');
+}
+
+/** Table-cell safe: no pipes, no newlines. The text itself is never rewritten. */
+function cell(text: string): string {
+  return text.replace(/\|/g, '/').replace(/\s+/g, ' ').trim();
+}
+
+/** Judge spend, which no tape can see and which the site adds to the trace cost. */
+function judgeUsageLines(usage: JudgeUsageBlock): string[] {
+  const cost =
+    usage.estCostUsd === null
+      ? 'not available (no price row matched, failing closed)'
+      : `$${usage.estCostUsd.toFixed(4)}${usage.partial ? ' (lower bound)' : ''}`;
+  return [
+    `- Judge spend: ${usage.calls} call(s), ${usage.inputTokens} input and ${usage.outputTokens} output tokens, ${cost}`,
+    // A figure the run itself calls a lower bound cannot be handed to the next
+    // sentence as a component of a total. When any judge call went unpriced,
+    // returned no usage, or failed, the only honest arithmetic downstream is a
+    // floor, and the sentence has to say floor in both halves.
+    usage.estCostUsd === null
+      ? '- Judge spend is measured from the API usage blocks and is NOT in the trace statistics. It could not be priced here, so no total for this run can be stated.'
+      : usage.partial
+        ? `- Judge spend is measured from the API usage blocks and is NOT in the trace statistics. This figure is a lower bound${usage.uncountedCalls > 0 ? `, ${usage.uncountedCalls} call(s) reported no usage` : ''}${usage.failedCalls > 0 ? `, ${usage.failedCalls} call(s) failed` : ''}, so a run total is AT LEAST the trace cost plus $${usage.estCostUsd.toFixed(4)}.`
+        : `- Judge spend is measured from the API usage blocks and is NOT in the trace statistics. A total for this run is the trace cost plus $${usage.estCostUsd.toFixed(4)}.`
+  ];
+}
+
 function ledgerTable(gates: GateLedger): string[] {
   const lines = [
     '| gate | cost | result | reason |',
@@ -182,6 +290,7 @@ export function renderMarkdown(report: FitnessReportJson): string {
   out.push(`- Judge model: ${report.run.judgeModel}`);
   out.push(`- Suite hash: ${report.run.suiteHash}`);
   out.push(`- Task budget: ${report.run.taskBudget} tokens`);
+  if (report.run.judgeUsage !== undefined) out.push(...judgeUsageLines(report.run.judgeUsage));
   out.push('');
 
   out.push('## Validity gates');
@@ -193,12 +302,7 @@ export function renderMarkdown(report: FitnessReportJson): string {
       `compare the noise floor against, so that row is recorded after the first pass that produces one.`
   );
   out.push('');
-  out.push(
-    report.gates.extensionPolicy.maxExtensions === 0
-      ? 'Extension policy, fixed before the first call: no extension batches are run in v0, so a gate the data cannot resolve resolves immediately and the run is refused rather than extended.'
-      : `Extension policy was fixed before the first call: ${report.gates.extensionPolicy.extensionSize} per extension, ` +
-          `at most ${report.gates.extensionPolicy.maxExtensions}.`
-  );
+  out.push(...extensionCopy(report.gates));
   out.push('');
   out.push(...ledgerTable(report.gates));
   out.push('');
@@ -291,12 +395,36 @@ export function renderMarkdown(report: FitnessReportJson): string {
 
 /**
  * The v0 methods copy every run carries. These are the divergences and the
- * limitations we own publicly (DESIGN decisions 10, 12, 8, 19).
+ * limitations we own publicly (DESIGN decisions 10, 11, 12, 8, 19).
+ *
+ * The extension paragraphs describe the protocol that NOW RUNS. They are
+ * deliberately specific about what it cannot be used for: the size and the
+ * maximum are fixed in the pre-registration alongside n, an unresolved gate
+ * resolves to FAIL after the last extension, and a suite regenerated outside
+ * the protocol is a NEW run. No em-dashes: this text reaches the site.
+ *
+ * THE POLICY NUMBERS ARE AN ARGUMENT, never literals in this file. The
+ * pre-registration is one frozen constant in the pipeline; prose that restated
+ * it was free to disagree with it, and a pre-registration the published copy
+ * contradicts is not a pre-registration. Callers pass the same object the run
+ * persisted into its own record, so the sentence and the behaviour move
+ * together or not at all.
  */
-export function defaultMethodsNotes(): string[] {
+export function defaultMethodsNotes(policy: ExtensionPolicy): string[] {
+  const { extensionSize, maxExtensions } = policy;
+  const registered =
+    maxExtensions === 0 || extensionSize === 0
+      ? 'Extension protocol, pre-registered before the first model call: no extension batches at all. A gate the registered suite cannot resolve is resolved on its first evaluation and the run is refused rather than extended.'
+      : `Extension protocol, pre-registered before the first model call: ${extensionSize} new tasks per extension, at most ${maxExtensions}. When the construct gate returns EXTEND, one batch is generated by the same generator at a derived seed, screened by the same free gates and measured by the same three null baselines, and run at the same reps. Successes and trials are then POOLED across the original suite and every consumed extension, and the three-outcome rule is re-applied to the pooled counts.`;
   return [
     'Construct gate denominator diverges from evalgate: reference-agent errors count, and an error rate above 5% resolves to COMPROMISED rather than silently shrinking n.',
     'A published PASS additionally requires the Wilson 95% lower bound to clear the threshold, or an n the design was sized for. Otherwise the verdict downgrades to EXTEND.',
+    registered,
+    'The free gates screen a bought batch with the SAME consequences they carry on the registered suite. An answer key that reaches the answering model (through a batch task prompt, its bound parameters, the server instructions or a tool description) refuses the run, and so does a batch task that violates the structural property the run depends on, which is an unbound placeholder left in the rendered prompt or an empty prompt. The refusal names the batch and the offending task. A leak or a property violation inside a batch bought to resolve a gate is evidence about the generator, not a task to quietly discard, and the batch is voided whole rather than mined for its clean tasks.',
+    'Three findings inside a batch are DROPS and not refusals, each counted per batch in the run record: a task naming a tool the server does not expose (ordinary admission), a candidate the generation-time null screen deleted, and a task that restates one already in the pool. The duplicate rule is content level, not id level: two tasks are the same task when their rendered prompts agree after whitespace collapsing and case folding and their expected tools and their success check agree. Without it the deterministic e-index id prefix would hide the collision and a restated task would inflate the pooled n with a trial that is perfectly correlated with one already counted.',
+    'EXTEND is not a loophole. The extension size and the maximum number of extensions are fixed in the pre-registration alongside n; after the last extension an unresolved gate resolves to FAIL, not to another extension and not to a missing row. There is no optional stopping: a run completes its registered size or is void, and a task suite regenerated outside this protocol is a NEW run with a new suite hash, never a retry.',
+    'When a run extends and the pooled gate passes, the drive and the score cover the FULL pooled suite. Extension tasks are recorded under their own correlation ids exactly like original tasks, and the published suite hash covers the pooled set with the per-batch lineage in suite-meta.json.',
+    'Judge spend (task synthesis and its retries, every extension batch, the generation-time null screen probes, and every rubric check) reaches neither tape, so the trace statistics cannot price it. It is measured from the API usage blocks and published as run.judgeUsage. A total for a run is the trace cost plus that figure.',
     'Destructive-without-confirmation, v0 rule: a tool is destructive unless it declares readOnlyHint true or destructiveHint false, and every executed call to such a tool counts. The only thing that clears one is recorded evidence that the server asked about that same tool before that same call ran. Confirmation is never inherited from another tool or from elsewhere in the task.',
     'Construct gate: the reference agent is told the answer, so a text check alone would pass against a dead server. A reference pass counts only when it also landed a successful call on a tool the task expects.',
     'Multi-round tool input (MRTR) is recorded and then declined in v0. A server that asks for input gets an mrtr-abandoned datum, never a fabricated answer.',
