@@ -9,7 +9,40 @@ cd "$ROOT"
 set -a; source ~/.config/op/service-account.env; set +a
 export ANTHROPIC_API_KEY="$(op item get 'FOIL Anthropic API key' --vault Civqo --fields credential --reveal 2>/dev/null)"
 if [ -z "$ANTHROPIC_API_KEY" ]; then echo "LEDGER {\"slug\":\"$SLUG\",\"error\":\"no-key\"}"; exit 1; fi
-timeout 1500 npx tsx src/cli.ts run "$URL" --max-tasks 12 --out "runs/sweep/$SLUG" 2>&1 | grep -v "sk-"
+
+# ONE RUN DIRECTORY IS ONE RUN. This script reuses runs/sweep/<slug> as the
+# slot for the latest attempt at a server, and the tape writer used to open its
+# two planes in APPEND mode, so a rerun of a slug wrote a second meta line and a
+# second session onto the previous run's tape while report.json was replaced
+# outright. The published directory then held two runs and served the earlier
+# one's frames under the later one's replay link, and the earlier attempt lost
+# its leaderboard row when publish-sweep.sh rebuilt the board from the run
+# reports that were left.
+#
+# The harness now refuses to record into a directory that already holds a tape.
+# A rerun is a SEPARATE ATTEMPT, exactly as the leaderboard presents it, so the
+# previous attempt is moved aside under its own run id and keeps its report and
+# its tapes. publish-sweep.sh globs runs/sweep/*/report.json, so an archived
+# attempt stays on the board instead of being deleted to make room.
+OUT="runs/sweep/$SLUG"
+if [ -s "$OUT/mcp.jsonl" ] || [ -s "$OUT/agent.jsonl" ]; then
+  PREV_ID="$(python3 -c "
+import json
+try:
+    print(json.load(open('$OUT/report.json'))['run']['id'])
+except Exception:
+    print('')" 2>/dev/null)"
+  [ -n "$PREV_ID" ] || PREV_ID="incomplete-$(date -u +%Y%m%dT%H%M%SZ)"
+  ARCHIVE="runs/sweep/$SLUG@$PREV_ID"
+  if [ -e "$ARCHIVE" ]; then
+    echo "ARCHIVE EXISTS $ARCHIVE, refusing to run $SLUG again" >&2
+    exit 1
+  fi
+  mv "$OUT" "$ARCHIVE"
+  echo "archived the previous attempt at $SLUG to $ARCHIVE"
+fi
+
+timeout 1500 npx tsx src/cli.ts run "$URL" --max-tasks 12 --out "$OUT" 2>&1 | grep -v "sk-"
 EC=$?
 unset ANTHROPIC_API_KEY
 python3 - "$SLUG" "$EC" <<'EOF'

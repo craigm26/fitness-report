@@ -11,7 +11,7 @@
  * present exactly when the gates allowed it.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -21,7 +21,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { start, type CanaryHandle } from '../canary/server.js';
-import { parseArgs, runPipeline, type ModelClient } from '../src/cli.js';
+import { OutDirInUseError, parseArgs, runPipeline, type ModelClient } from '../src/cli.js';
 import type { TapeLine } from '../src/types.js';
 
 let canary: CanaryHandle;
@@ -260,6 +260,127 @@ describe('argument parsing', () => {
     expect(() => parseArgs(['run'])).toThrow(/usage/);
     expect(() => parseArgs(['run', '--pin', 'x'])).toThrow(/usage/);
   });
+
+  it('defaults to leaving an already recorded out dir alone', () => {
+    expect(parseArgs(['run', 'https://x.test/mcp']).overwrite).toBe(false);
+    expect(parseArgs(['run', 'https://x.test/mcp', '--overwrite']).overwrite).toBe(true);
+    expect(parseArgs(['run', 'https://x.test/mcp'])).not.toHaveProperty('out');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One run directory is one run.
+//
+// `--out runs/sweep/<slug>` is reused as the slot for the latest attempt at a
+// server, and the tape writer opened its planes in APPEND mode, so a rerun
+// wrote a second meta line and a second session onto the previous run's tape
+// while report.json was replaced outright. The published directory then held
+// two runs, and the replay link on the later run's row served the earlier run's
+// frames. Five of 33 published trace directories were left in that state.
+// ---------------------------------------------------------------------------
+
+describe('an out directory that already holds a run', () => {
+  const twoRuns = async (out: string, second: { overwrite: boolean }) => {
+    const first = await runPipeline(
+      { ...parseArgs(['run', canary.url]), out, constructReps: 1 },
+      { anthropic: stubClient({ taskCount: 10 }), log: () => undefined }
+    );
+    const again = runPipeline(
+      {
+        ...parseArgs(['run', canary.url, ...(second.overwrite ? ['--overwrite'] : [])]),
+        out,
+        constructReps: 1
+      },
+      { anthropic: stubClient({ taskCount: 10 }), log: () => undefined }
+    );
+    return { first, again };
+  };
+
+  it('refuses the rerun and leaves the recorded run intact', async () => {
+    const out = join(dir, 'reused');
+    const { first, again } = await twoRuns(out, { overwrite: false });
+    await expect(again).rejects.toThrow(OutDirInUseError);
+
+    // The refusal spends nothing and destroys nothing: the tapes are still the
+    // first run's, one session each.
+    for (const path of [first.files.mcpTape, first.files.agentTape]) {
+      const metas = (await readTape(path)).filter((l) => (l as { type?: string }).type === 'meta');
+      expect(metas).toHaveLength(1);
+      expect((metas[0] as { startedAt: string }).startedAt).toBe(first.report.run.startedAt);
+    }
+    const report = JSON.parse(await readFile(first.files.reportJson, 'utf8')) as { run: { id: string } };
+    expect(report.run.id).toBe(first.report.run.id);
+  }, 60_000);
+
+  it('names the directory and the tapes it found, so the operator can act', async () => {
+    const out = join(dir, 'reused-message');
+    const { again } = await twoRuns(out, { overwrite: false });
+    const error = await again.then(
+      () => null,
+      (e: unknown) => e as OutDirInUseError
+    );
+    expect(error).toBeInstanceOf(OutDirInUseError);
+    expect(error?.outDir).toBe(out);
+    expect([...(error?.tapes ?? [])].sort()).toEqual(['agent.jsonl', 'mcp.jsonl']);
+    expect(error?.message).toMatch(/--overwrite/);
+  }, 60_000);
+
+  it('records a clean single-session run under --overwrite', async () => {
+    const out = join(dir, 'reused-overwrite');
+    const { first, again } = await twoRuns(out, { overwrite: true });
+    const second = await again;
+
+    expect(second.report.run.id).not.toBe(first.report.run.id);
+    for (const path of [second.files.mcpTape, second.files.agentTape]) {
+      const lines = await readTape(path);
+      const metas = lines.filter((l) => (l as { type?: string }).type === 'meta');
+      expect(metas).toHaveLength(1);
+      // The surviving session is the SECOND run, never a mixture of the two.
+      expect((metas[0] as { startedAt: string }).startedAt).toBe(second.report.run.startedAt);
+      expect(lines.filter((l) => (l as { type?: string }).type === 'end')).toHaveLength(1);
+    }
+
+    // The published copies the leaderboard actually serves carry the same one
+    // session: publish-sweep.sh copies these, not the raw tapes.
+    for (const plane of ['mcp', 'agent'] as const) {
+      const lines = await readTape(join(out, 'publish', `${plane}.jsonl`));
+      expect(lines.filter((l) => (l as { type?: string }).type === 'meta')).toHaveLength(1);
+    }
+  }, 60_000);
+
+  it('clears the previous run synthesis ledger rather than leaving it beside a new report', async () => {
+    const out = join(dir, 'reused-stale-ledger');
+    // A first run that synthesizes a suite writes suite-meta.json. A rerun that
+    // refuses before synthesis writes none, and the stale one would otherwise
+    // sit beside the new report describing a suite that report never had.
+    const first = await runPipeline(
+      { ...parseArgs(['run', canary.url]), out, constructReps: 1 },
+      { anthropic: stubClient({ taskCount: 10 }), log: () => undefined }
+    );
+    expect(first.files.suiteMeta).not.toBeNull();
+    const before = JSON.parse(await readFile(first.files.suiteMeta as string, 'utf8')) as {
+      runId: string;
+    };
+    expect(before.runId).toBe(first.report.run.id);
+
+    const second = await runPipeline(
+      { ...parseArgs(['run', canary.url, '--overwrite']), out, constructReps: 1 },
+      { anthropic: stubClient({ taskCount: 10 }), log: () => undefined }
+    );
+    const after = JSON.parse(await readFile(join(out, 'suite-meta.json'), 'utf8')) as { runId: string };
+    expect(after.runId).toBe(second.report.run.id);
+  }, 60_000);
+
+  it('does not treat a zero-byte tape as a recorded run', async () => {
+    const out = join(dir, 'empty-tape');
+    await mkdir(out, { recursive: true });
+    await writeFile(join(out, 'mcp.jsonl'), '', 'utf8');
+    const result = await runPipeline(
+      { ...parseArgs(['run', canary.url]), out, constructReps: 1 },
+      { anthropic: stubClient({ taskCount: 10 }), log: () => undefined }
+    );
+    expect(result.report.outcome).toBe('SCORED');
+  }, 60_000);
 });
 
 describe('full pipeline against the canary', () => {
@@ -379,7 +500,7 @@ describe('full pipeline against the canary', () => {
 
     expect(meta.schema).toBe('fitness-report.suite-meta/1');
     expect(meta.suiteHash).toBe(result.report.run.suiteHash);
-    expect(meta.generator.generatorVersion).toBe('fitness-report-generator/2');
+    expect(meta.generator.generatorVersion).toBe('fitness-report-generator/3');
     // The screen runs on the RUNNER model, never the judge.
     expect(meta.generator.nullScreen).toMatchObject({ enabled: true, model: 'claude-sonnet-5' });
     expect(meta.surface.toolNames).toContain('get_invoice');
@@ -398,7 +519,7 @@ describe('full pipeline against the canary', () => {
     expect(event.data).toBeUndefined();
     expect(event.corr_id).toBeUndefined();
     expect(event.raw?.suiteHash).toBe(result.report.run.suiteHash);
-    expect(event.raw?.generatorVersion).toBe('fitness-report-generator/2');
+    expect(event.raw?.generatorVersion).toBe('fitness-report-generator/3');
 
     // Per-candidate screen verdicts are evidence too, correlated per task.
     const screens = mcp.filter((l) => (l as { kind?: string }).kind === 'fitness.null_screen');
@@ -407,7 +528,7 @@ describe('full pipeline against the canary', () => {
 
     // The disclosure is in METHODS, not buried in a log line.
     expect(result.report.methods?.some((m) => m.includes('biased downward by construction'))).toBe(true);
-    expect(result.report.methods?.some((m) => m.includes('fitness-report-generator/2'))).toBe(true);
+    expect(result.report.methods?.some((m) => m.includes('fitness-report-generator/3'))).toBe(true);
   }, 120_000);
 
   it('writes the synthesis ledger even when synthesis itself threw', async () => {

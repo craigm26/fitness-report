@@ -17,7 +17,7 @@
     <p class="eyebrow">fitness-report / 1</p>
     <p class="wordmark">Fitness&nbsp;Report</p>
     <h1 class="thesis">Methods, and the record of what went wrong.</h1>
-    <p class="thesis-count">26 entries in the failure record. 6 are open today.</p>
+    <p class="thesis-count">26 entries in the failure record. 2 are open today.</p>
     <p class="lede">
       This product's entire claim is that it refuses to publish numbers it cannot support. A claim like
       that is worth nothing unless the failures are published to the same standard as the findings, so
@@ -483,7 +483,7 @@
       <div class="section-head">
         <div class="section-head-text">
           <h2 id="failures-heading">5. The failure record</h2>
-          <p class="section-note">Twenty-six entries covering this harness and the tooling under it: what broke, what nearly broke, and what is still open.</p>
+          <p class="section-note">Twenty-six entries covering this harness and the tooling under it: what broke, what nearly broke, and the two that are still open.</p>
         </div>
       </div>
 
@@ -499,7 +499,9 @@
       <div class="m-legend">
         <p class="field-label">How to read a status</p>
         <ul class="legend-list">
-          <li><span class="tag tag-fault">OPEN</span> Still true today.</li>
+          <li><span class="tag tag-fault">OPEN</span> Still true of what is published today. Both open
+            entries now carry a fix in the code and stay open because no published artifact has been
+            produced under it yet.</li>
           <li><span class="tag tag-ok">CLOSED</span> Was true, is fixed, and the fix is pinned by a test.</li>
           <li><span class="tag tag-hold">CAUGHT EARLY</span> Found and closed before any published file or number carried it.</li>
           <li><span class="tag tag-unknown">ON RECORD</span> A published fact or event that stands as published.</li>
@@ -600,7 +602,7 @@
             <ul class="ev-list">
               <li><span class="ev-kind">file</span> <a href="https://github.com/craigm26/fitness-report/blob/302a62e/site/data/runs.json" rel="noopener noreferrer">site/data/runs.json at 302a62e</a>, nine rows with no generator version recorded carry a <code>null_baseline</code> record with the no-tools rates above</li>
               <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, current: every row recorded as <code>fitness-report-generator/2</code> carries a no-tools rate of 0</li>
-              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/7f3b606" rel="noopener noreferrer">7f3b606</a>, "Null-hard synthesis verified live: all three null models 0/12 on every the null-hard generator suite"</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/7f3b606" rel="noopener noreferrer">7f3b606</a>, the first scored row under the null-hard generator: svelte 9 of 12 first-try, with coingecko and gitmcp refusing at the construct gate</li>
             </ul>
           </div>
         </div>
@@ -616,20 +618,25 @@
           <div class="fail-field">
             <p class="field-label">What broke</p>
             <p>
-              Across the sixteen runs recorded as <code>fitness-report-generator/2</code>, 198 of 386 generated candidates were dropped with the rule
-              <code>invalid-check</code> and the detail "regex does not compile". Every one of them was a
-              <code>tool_result_matches</code> check. The generator instructions make that check kind
-              required whenever the answer lives in a tool result, and never state the regex dialect or the
-              JSON escaping the validator will apply. The validator then compiles with
-              <code>new RegExp(c.pattern)</code> and drops on any failure. There is no repair pass for an
-              invalid check; only an answer leak buys the one regeneration attempt.
+              Across the runs recorded as <code>fitness-report-generator/2</code>, candidates were dropped in
+              bulk with the rule <code>invalid-check</code> and the detail "regex does not compile". The
+              generator instructions made a <code>tool_result_matches</code> check required whenever the
+              answer lives in a tool result, and never stated the regex dialect or the JSON escaping the
+              validator would apply. The validator then compiled with <code>new RegExp(c.pattern)</code> and
+              dropped on any failure. There was no repair pass for an invalid check; only an answer leak
+              bought the one regeneration attempt.
+            </p>
+            <p>
+              One correction to this entry. It said every one of those drops was a
+              <code>tool_result_matches</code> check. Counted over the drop ledgers on disk it is 196 of
+              198, and the other two are <code>regex</code> checks.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">What it caused</p>
             <p>
               Three runs lost 24 of 24 candidates: microsoft learn, better auth, and the aws knowledge
-              attempt now on the board. Three more kept 1 of 24: cloudflare docs, context7 and vercel docs.
+              attempt of 16:59:20.891Z. Three more kept 1 of 24: cloudflare docs, context7 and vercel docs.
               Astro kept 4 of 24. All seven of those runs are published right now as
               <code>GATE_FAILED</code> or <code>INSUFFICIENT_SURFACE</code>, which reads on the board as a
               statement about the server. Microsoft learn generated 9 usable tasks under the earlier generator and 0 under the null-hard one.
@@ -641,16 +648,57 @@
               By totalling the drop counts across the sweep after the roster was rebuilt. Those counts were
               already being serialised into every published run, which is the only reason the number is
               recoverable at all; the per candidate ledger behind them is not published, which is entry
-              <a href="#f17">17</a>. It is still open: the prompt and the validator still disagree about the
-              dialect, and nothing repairs an invalid check.
+              <a href="#f17">17</a>.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">What was fixed</p>
+            <p>
+              Every pattern-bearing check now goes through one door,
+              <code>compileCheckPattern()</code> in <code>src/tasks/synthesize.ts</code>, which runs
+              <code>repairPattern()</code> first. Constructs from other regex dialects that have an exact
+              ECMAScript translation are translated: an inline <code>(?i)</code> or <code>(?s)</code> flag
+              group becomes a flag or a character class, <code>(?P&lt;name&gt;...)</code> becomes
+              <code>(?&lt;name&gt;...)</code>, and a <code>(?#comment)</code> is removed. A pattern
+              JavaScript already accepts comes back byte for byte: over the 183 patterns the published sweep
+              actually admitted, and over 19,902 generated patterns JavaScript accepts, the function returned
+              every one unchanged and repaired none.
+            </p>
+            <p>
+              Nothing was loosened to make patterns pass. A construct with no faithful translation is still
+              dropped, and the drop now names it: atomic group, possessive quantifier, conditional group, an
+              inline flag group it cannot express, and a multiline <code>$</code>, which has no ECMAScript
+              form that provably matches the same text. The generator prompt gained a section stating the
+              dialect it is compiled in, and the synthesizer and check policy versions moved from 2 to 3 so
+              suites from the two generators cannot land in one table.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Why it is still open</p>
+            <p>
+              Nothing has been re-run under the fix. All 17 rows on the board still carry
+              <code>fitness-report-generator/2</code>, so the seven servers above are still published as
+              <code>GATE_FAILED</code> or <code>INSUFFICIENT_SURFACE</code> in the slot where a reader looks
+              for a fact about the server. The entry closes when a run under the repaired generator is on the
+              board beside them, not when the code changes.
+            </p>
+            <p>
+              And the drop ledger of the damaged runs never stored a pattern, which is entry
+              <a href="#f17">17</a>, so the constructs that actually caused those 198 drops cannot be
+              recovered. The repair table above is built from what the dialects do, not from the patterns
+              that failed here. Whether it would have saved these particular candidates is not something this
+              record can show.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">Evidence</p>
             <ul class="ev-list">
-              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, sum <code>gates.records[structural].detail.synthesis.dropsByRule["invalid-check"]</code> over the sixteen the null-hard generator rows: 198, against 386 in the matching <code>yield.candidates</code></li>
-              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1198-L1202" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1198 to 1202</a>, the instruction that requires the check and states no dialect</li>
-              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1581-L1584" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1581 to 1584</a>, the <code>new RegExp</code> compile and the drop</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, sum <code>gates.records[structural].detail.synthesis.dropsByRule["invalid-check"]</code> over the seventeen rows recorded as <code>fitness-report-generator/2</code>: 209, against 410 in the matching <code>yield.candidates</code>. Sixteen of those rows were on the board when this entry was written and summed to 198 of 386; the seventeenth is the aws knowledge run restored by entry <a href="#f16">16</a>, which contributes 11 of 24</li>
+              <li><span class="ev-kind">artifact</span> <code>runs/sweep/*/suite-meta.json</code>, the drop ledgers on disk: 198 <code>invalid-check</code> drops, 196 on a <code>tool_result_matches</code> check and 2 on a <code>regex</code> check. Not linkable: <code>runs/</code> is gitignored</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1198-L1202" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1198 to 1202 before the fix</a>, the instruction that requires the check and states no dialect</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1581-L1584" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1581 to 1584 before the fix</a>, the <code>new RegExp</code> compile and the drop</li>
+              <li><span class="ev-kind">source</span> <code>src/tasks/synthesize.ts</code>, <code>repairPattern()</code> and <code>compileCheckPattern()</code>, cited by name because the fix is not in a published commit yet</li>
+              <li><span class="ev-kind">test</span> <code>test/synthesize.test.ts</code>: "returns a pattern JavaScript already accepts byte for byte"; "admits every pattern the published sweep admitted, so validation is not the over-strict half"; "translates the named-group and comment syntax of other dialects"; "refuses to translate a multiline $, because the dialects disagree about it"; "still drops an unsalvageable pattern, and says which construct did it"</li>
             </ul>
           </div>
         </div>
@@ -684,8 +732,9 @@
           <div class="fail-field">
             <p class="field-label">How it was caught</p>
             <p>
-              While rewriting synthesis for the the null-hard generator generator. It is documented in the source as a proven the earlier generator
-              bug and pinned by two tests that assert the scan reads the rendered prompt and the wire shape.
+              While rewriting synthesis for the null-hard generator. It is documented in the source as a
+              proven defect of the earlier one and pinned by two tests that assert the scan reads the
+              rendered prompt and the wire shape.
             </p>
           </div>
           <div class="fail-field">
@@ -732,7 +781,7 @@
             <ul class="ev-list">
               <li><span class="ev-kind">test</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/test/pipeline.test.ts#L57-L59" rel="noopener noreferrer">test/pipeline.test.ts lines 57 to 59</a>, the fixture builder's own note, "verified while writing this"</li>
               <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L1564-L1570" rel="noopener noreferrer">src/tasks/synthesize.ts lines 1564 to 1570</a>, the production rule</li>
-              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, one <code>check-too-permissive</code> drop on each of the coingecko the null-hard generator, convex the null-hard generator and hugging face rows recorded as <code>fitness-report-generator/2</code></li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, one <code>check-too-permissive</code> drop on each of the coingecko, convex and hugging face rows recorded as <code>fitness-report-generator/2</code></li>
             </ul>
           </div>
         </div>
@@ -1071,56 +1120,77 @@
       <article class="fail" id="f14">
         <div class="fail-head">
           <span class="fail-num">14</span>
-          <h4 class="fail-title">Five published trace files hold more than one session, so a replay link serves frames from another run.</h4>
-          <span class="tag tag-fault">OPEN</span>
+          <h4 class="fail-title">Five published trace files held more than one session, so a replay link served frames from another run.</h4>
+          <span class="tag tag-ok">CLOSED</span>
         </div>
         <div class="fail-body">
           <div class="fail-field">
             <p class="field-label">What broke</p>
             <p>
-              Of the 33 trace directories on this origin, five carry more than one <code>meta</code> line,
-              meaning the published tape for one run also contains a different run. Counting meta lines
-              against the record count our own report claims for that run:
+              A rerun into an output directory that already held a run appended to that run's tapes instead
+              of refusing. Five of the 33 trace directories on this origin ended up carrying more than one
+              <code>meta</code> line, meaning the published tape for one run also contained a different run.
+              Counting meta lines then and now, against the line count our own report claimed for that run
+              all along:
             </p>
-            <div class="m-scroll" tabindex="0" role="region" aria-label="Published trace files holding more than one session">
+            <div class="m-scroll" tabindex="0" role="region" aria-label="Published trace files that held more than one session, before and after repair">
               <table class="m-table">
-                <caption class="sr-only">Published trace files holding more than one session</caption>
+                <caption class="sr-only">Published trace files that held more than one session, before and after repair</caption>
                 <thead>
-                  <tr><th scope="col">Published tape</th><th scope="col">Sessions</th><th scope="col">Lines in file</th><th scope="col">Records our report claims</th></tr>
+                  <tr><th scope="col">Published tape</th><th scope="col">Sessions before</th><th scope="col">Lines before</th><th scope="col">Sessions now</th><th scope="col">Lines now</th><th scope="col">Lines the report claimed</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td><a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z/mcp.jsonl">aws knowledge, 16:59:20.891Z</a></td><td class="m-num">2</td><td class="m-num">274</td><td class="m-num">14</td></tr>
-                  <tr><td><a href="traces/gitmcp-io-2026-08-20T00-02-42-466Z/mcp.jsonl">gitmcp, 00:02:42.466Z</a></td><td class="m-num">3</td><td class="m-num">230</td><td class="m-num">204</td></tr>
-                  <tr><td><a href="traces/mcp-svelte-dev-2026-08-19T23-51-53-742Z/mcp.jsonl">svelte, 23:51:53.742Z</a></td><td class="m-num">3</td><td class="m-num">288</td><td class="m-num">258</td></tr>
-                  <tr><td><a href="traces/mcp-api-coingecko-com-2026-08-19T23-43-21-646Z/mcp.jsonl">coingecko, 23:43:21.646Z</a></td><td class="m-num">3</td><td class="m-num">222</td><td class="m-num">196</td></tr>
-                  <tr><td><a href="traces/mcp-vercel-com-2026-08-20T18-17-32-685Z/mcp.jsonl">vercel docs, 18:17:32.685Z</a></td><td class="m-num">2</td><td class="m-num">32</td><td class="m-num">17</td></tr>
+                  <tr><td><a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z/mcp.jsonl">aws knowledge, 16:59:20.891Z</a></td><td class="m-num">2</td><td class="m-num">274</td><td class="m-num">1</td><td class="m-num">14</td><td class="m-num">14</td></tr>
+                  <tr><td><a href="traces/gitmcp-io-2026-08-20T00-02-42-466Z/mcp.jsonl">gitmcp, 00:02:42.466Z</a></td><td class="m-num">3</td><td class="m-num">230</td><td class="m-num">1</td><td class="m-num">204</td><td class="m-num">204</td></tr>
+                  <tr><td><a href="traces/mcp-svelte-dev-2026-08-19T23-51-53-742Z/mcp.jsonl">svelte, 23:51:53.742Z</a></td><td class="m-num">3</td><td class="m-num">288</td><td class="m-num">1</td><td class="m-num">258</td><td class="m-num">258</td></tr>
+                  <tr><td><a href="traces/mcp-api-coingecko-com-2026-08-19T23-43-21-646Z/mcp.jsonl">coingecko, 23:43:21.646Z</a></td><td class="m-num">3</td><td class="m-num">222</td><td class="m-num">1</td><td class="m-num">196</td><td class="m-num">196</td></tr>
+                  <tr><td><a href="traces/mcp-vercel-com-2026-08-20T18-17-32-685Z/mcp.jsonl">vercel docs, 18:17:32.685Z</a></td><td class="m-num">2</td><td class="m-num">32</td><td class="m-num">1</td><td class="m-num">17</td><td class="m-num">17</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div class="fail-field">
-            <p class="field-label">What it causes</p>
+            <p class="field-label">What it caused</p>
             <p>
-              On the aws knowledge row the published tape is 95 percent a different run. Attributing events
-              by session: session 0, started at 16:45:18.024Z and discarded, carries all 54
-              <code>fitness.http_error</code> events. Session 1, started at 16:59:20.891Z, is the run the
-              URL names, and it carries none of them and called no tool at all. A reader following the
-              replay link sees an evidence trail that belongs to a run we did not publish.
+              On the aws knowledge row the published tape was 95 percent a different run. Attributing events
+              by session: session 0, started at 16:45:18.024Z, carried all 54
+              <code>fitness.http_error</code> events. Session 1, started at 16:59:20.891Z, was the run the
+              URL named, and it carried none of them and called no tool at all. A reader following the
+              replay link saw an evidence trail belonging to a run that had no row. It was the multi-session
+              shape mcp-tape 0.7.3 had to fix on the reading side (entry <a href="#f22">22</a>), occurring
+              in our own published evidence on the writing side.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">Status</p>
+            <p class="field-label">How it was closed</p>
             <p>
-              Open. This is precisely the multi-session shape mcp-tape 0.7.3 had to fix on the reading side
-              (entry <a href="#f22">22</a>), now occurring in our own published evidence on the writing
-              side.
+              The tapes were repaired and the write path was made incapable of doing it again. Each of the
+              ten affected files, the five in the table and the five agent tapes beside them, was trimmed to
+              its own session. Nothing was written into them: against the previous published versions the
+              ten files add no line at all and remove 555. Every removed session recorded a meta line, an end
+              line and nothing else, an attempt that aborted before it configured a suite, with one
+              exception: the aws knowledge session started at 16:45:18.024Z, whose removed bytes are
+              identical to the tape already published in that run's own directory. None of the removed
+              sessions was ever a published row, in any version of <code>runs.json</code>.
+            </p>
+            <p>
+              On the write side, the tape writer now refuses a path that already holds bytes unless the
+              caller explicitly asks to truncate, the run command refuses an output directory already in use
+              before it spends a token, and the sweep script archives a previous attempt instead of writing
+              over it. The publish step warns on any tape carrying more than one meta line. All 66 published
+              tapes now hold exactly one session, and in every one the session's start time equals the
+              timestamp in its own directory name.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">Evidence</p>
             <ul class="ev-list">
-              <li><span class="ev-kind">artifact</span> the five tapes linked in the table above, all served from this origin. Count <code>"type":"meta"</code> lines</li>
-              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, the <code>trace_stats.session.records</code> block on each of those rows</li>
+              <li><span class="ev-kind">artifact</span> the five tapes linked in the table above, all served from this origin. Count <code>"type":"meta"</code> lines: one each</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, the <code>trace_stats</code> block on each of those rows, which the repaired files now match line for line</li>
+              <li><span class="ev-kind">source</span> <code>src/tape/writer.ts</code>, the stat guard and <code>TapeExistsError</code>; <code>src/cli.ts</code>, <code>prepareOutDir()</code> and <code>OutDirInUseError</code></li>
+              <li><span class="ev-kind">test</span> <code>test/tape.test.ts</code>: "refuses to append a second session onto a tape that already exists"; "treats a zero-byte file as no recording at all"; "finds one session in every published tape"</li>
+              <li><span class="ev-kind">test</span> <code>test/pipeline.test.ts</code>: "refuses the rerun and leaves the recorded run intact"; "does not treat a zero-byte tape as a recorded run"</li>
+              <li><span class="ev-kind">test</span> <code>test/site.test.js</code>: "holds exactly one session in every published tape, and it is that run’s own"; "agrees line for line with each row’s own trace_stats block"</li>
             </ul>
           </div>
         </div>
@@ -1129,41 +1199,60 @@
       <article class="fail" id="f15">
         <div class="fail-head">
           <span class="fail-num">15</span>
-          <h4 class="fail-title">The pinned tape oracle misreads our own published tapes, silently.</h4>
-          <span class="tag tag-fault">OPEN</span>
+          <h4 class="fail-title">The pinned tape oracle misread our own published tapes, silently.</h4>
+          <span class="tag tag-ok">CLOSED</span>
         </div>
         <div class="fail-body">
           <div class="fail-field">
             <p class="field-label">What broke</p>
             <p>
-              The design makes <code>npx mcp-tape stats &lt;file&gt; --json</code> the oracle that must parse
-              our tapes and agree with our own pairing counts. The pin is <code>^0.7.2</code> and the
-              installed binary reports 0.7.2, which predates both the session-scoped pairing and the
-              multiple-sessions-in-file warning added in 0.7.3.
+              The design makes <code>mcp-tape stats &lt;file&gt; --json</code> the oracle that must parse our
+              tapes and agree with our own pairing counts. The pin was <code>^0.7.2</code> and the installed
+              binary reported 0.7.2, which predates both the session-scoped pairing and the
+              multiple-sessions-in-file warning added in 0.7.3. We published 0.7.3 ourselves.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">What it causes</p>
+            <p class="field-label">What it caused</p>
             <p>
-              Run against the aws knowledge tape, the oracle returns <code>warnings: null</code>,
+              Run against the aws knowledge tape, the oracle returned <code>warnings: null</code>,
               <code>startedAt 2026-08-20T16:45:18.024Z</code> which is the wrong run,
               <code>durationMs 537243</code> spanning both runs, 274 records and 54 tool calls across four
-              aws tools. Our own <code>trace_stats</code> for that same run id says 16:59:20.891Z, 16
-              records and zero tools. The oracle and the report disagree by 260 records and 54 tool calls on
-              the same run, and the oracle raises nothing at all.
+              aws tools. Our own <code>trace_stats</code> for that same run id said 16:59:20.891Z, 16
+              records and zero tools. The oracle and the report disagreed by 260 records and 54 tool calls on
+              the same run, and the oracle raised nothing at all. An oracle is only an oracle if it is a
+              version that can read what we write.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">Status</p>
+            <p class="field-label">How it was closed</p>
             <p>
-              Open. The oracle is only an oracle if it is a version that can read what we write.
+              The pin moved to <code>^0.7.3</code> in <code>package.json</code> and the lockfile, and the
+              installed binary reports 0.7.3. That version does raise the warning: run over the pre-repair
+              svelte tape from entry <a href="#f14">14</a>, which held three sessions, it returns a warning
+              with code <code>multiple-sessions-in-file</code> and <code>sessions: 3</code>. Run over all 66
+              tapes published today it returns an empty warnings array on every one.
+            </p>
+            <p>
+              On the aws knowledge tape that started this entry, the oracle now reads
+              <code>startedAt 2026-08-20T16:59:20.891Z</code>, 14 records and no tools, which is exactly what
+              that row's own record counts for the mcp plane, with 2 more on the agent plane for the 16 it
+              publishes. The test asserts a minimum of 0.7.3 against both the pin and the binary's own
+              <code>--version</code>, and asserts <code>warnings</code> is an empty array rather than absent,
+              because an absent key would mean the oracle had checked nothing.
+            </p>
+            <p>
+              The reproduce recipe this entry first published, <code>mcp-tape@0.7.2</code> against that tape,
+              no longer reproduces. Both halves of it moved: the version, and the tape itself, which entry
+              <a href="#f14">14</a> repaired.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">Evidence</p>
             <ul class="ev-list">
-              <li><span class="ev-kind">reproduce</span> <code>npx mcp-tape@0.7.2 stats mcp.jsonl --json</code> against <a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z/mcp.jsonl">the published aws tape</a></li>
-              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/package.json" rel="noopener noreferrer">package.json</a>, <code>"mcp-tape": "^0.7.2"</code></li>
+              <li><span class="ev-kind">reproduce</span> <code>node_modules/.bin/mcp-tape stats mcp.jsonl --json</code> against <a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z/mcp.jsonl">the published aws tape</a>: 14 records, no tools, <code>warnings: []</code></li>
+              <li><span class="ev-kind">source</span> <code>package.json</code>, <code>"mcp-tape": "^0.7.3"</code>, and <code>node_modules/.bin/mcp-tape --version</code> printing 0.7.3</li>
+              <li><span class="ev-kind">test</span> <code>test/tape.test.ts</code>: "is pinned to a version that knows about appended sessions"; "names an appended second session and keeps its calls apart"; "finds one session in every published tape"</li>
               <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, the <code>trace_stats</code> block on that row</li>
             </ul>
           </div>
@@ -1173,8 +1262,8 @@
       <article class="fail" id="f16">
         <div class="fail-head">
           <span class="fail-num">16</span>
-          <h4 class="fail-title">The aws knowledge row on the board is the weaker attempt, and the strong-evidence run was left an orphan.</h4>
-          <span class="tag tag-fault">OPEN</span>
+          <h4 class="fail-title">The aws knowledge row on the board was the weaker attempt, and the strong-evidence run was left an orphan.</h4>
+          <span class="tag tag-ok">CLOSED</span>
         </div>
         <div class="fail-body">
           <div class="fail-field">
@@ -1183,34 +1272,56 @@
               One commit published the 16:45:18.024Z run as a construct-gate failure and described it
               precisely: the reference agent completed 0 of 12 tasks, and the tape carries 54
               <code>fitness.http_error</code> events, each naming the tool, the HTTP 400 status and the
-              gateway's own message. A later commit rebuilt the board and replaced that row with the
-              16:59:20.891Z run, a structural gate failure with 0 of 24 candidates admitted, which is a
-              refusal produced entirely inside our own generator by the regex defect in entry
-              <a href="#f03">03</a>.
+              gateway's own message. A later commit rebuilt the board from whichever run directories had
+              survived and replaced that row with the 16:59:20.891Z run, a structural gate failure with 0 of
+              24 candidates admitted, which is a refusal produced entirely inside our own generator by the
+              regex defect in entry <a href="#f03">03</a>.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">What it causes</p>
+            <p class="field-label">What it caused</p>
             <p>
-              The published row's methods and gate ledger say nothing about the 54 HTTP 400s. The evidence
-              that actually indicts the server sits in a trace directory with no row pointing at it: 33
-              trace directories on this origin, 32 rows in <code>runs.json</code>, and that is the one
-              orphan. The board currently shows its weakest reading of that server while the stronger one is
-              published but unreferenced.
+              The published row's methods and gate ledger said nothing about the 54 HTTP 400s. The evidence
+              that actually indicts the server sat in a trace directory with no row pointing at it: 33
+              trace directories on this origin, 32 rows in <code>runs.json</code>, and that was the one
+              orphan. The board showed its weakest reading of that server while the stronger one was
+              published and unreferenced.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">Status</p>
+            <p class="field-label">How it was closed</p>
             <p>
-              Open. The orphan tape stays published rather than being deleted, and it is linked here.
+              The 16:45 record was restored to <code>runs.json</code>, and it was restored rather than
+              rewritten: compared key for key, it is the record that was published at ee131c1, and the change
+              to the file adds 943 lines and removes none. No other row was edited. All three aws knowledge
+              attempts now have rows, and the reader tells them apart by start time and suite hash rather
+              than by which one we kept.
+            </p>
+            <p>
+              The restored row is the run its evidence describes. It refused at the construct gate with the
+              reference agent completing 0 of 12 driven tasks, and its own tape carries exactly 54
+              <code>fitness.http_error</code> events, every one an HTTP 400, every one naming the tool and
+              the gateway's message, "Http operation is not supported for gateway protocol type MCP". The
+              16:59 row refused at the structural gate with 0 of 24 candidates admitted, under a different
+              suite hash. Directory and row counts now agree: 33 trace directories, 33 rows, no orphan and no
+              row whose tapes are missing.
+            </p>
+            <p>
+              The publish step is additive. It seeds the board from the <code>runs.json</code> already
+              published, keyed by run id, and a row is replaced only by a run carrying that same id; a row
+              whose tapes are missing is dropped rather than left pointing at nothing. The sweep script
+              archives a previous attempt instead of writing over it, and the renderer draws one row per run,
+              so there is no place in this pipeline where a best of two attempts could be chosen.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">Evidence</p>
             <ul class="ev-list">
               <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/ee131c1" rel="noopener noreferrer">ee131c1</a>, which published the 16:45 run and described the 54 events</li>
-              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/757986b" rel="noopener noreferrer">757986b</a>, which rebuilt <code>site/data/runs.json</code> and replaced the row</li>
-              <li><span class="ev-kind">artifact</span> <a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z/mcp.jsonl">the orphaned 16:45 tape</a>, which carries the 54 <code>fitness.http_error</code> events</li>
+              <li><span class="ev-kind">commit</span> <a href="https://github.com/craigm26/fitness-report/commit/757986b" rel="noopener noreferrer">757986b</a>, which rebuilt <code>site/data/runs.json</code> and dropped the row</li>
+              <li><span class="ev-kind">artifact</span> <a href="traces/knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z/mcp.jsonl">the 16:45 tape</a>, which carries the 54 <code>fitness.http_error</code> events, and now has a row again</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, three aws knowledge rows, and 33 rows against the 33 trace directories on this origin</li>
+              <li><span class="ev-kind">test</span> <code>test/site.test.js</code>: "has both planes on disk for every row the board lists"; "publishes no orphan recording that no row points at"; "carries the http_error evidence the stronger AWS attempt was published for"</li>
             </ul>
           </div>
         </div>
@@ -1227,7 +1338,7 @@
             <p class="field-label">What broke</p>
             <p>
               The drop ledger records the check kind, the offending phrase, a prompt excerpt and a cold
-              answer excerpt. It has no field for the check's pattern. So the twenty-four drops on the
+              answer excerpt. It had no field for the check's pattern. So the twenty-four drops on the
               microsoft learn run read <code>{rule: invalid-check, detail: "regex does not compile"}</code>
               twenty-four times with nothing in them to inspect.
             </p>
@@ -1239,10 +1350,11 @@
               it cannot, and the pattern they would most want to see is in neither file.
             </p>
             <p>
-              The agent plane does not fill the gap either, because it only holds runner turns. The gitmcp
-              the null-hard generator agent tape is 84 assistant turns from the runner model and 95 user turns, with zero turns
-              from the judge model. The microsoft learn the null-hard generator agent tape is exactly two lines, a meta and an
-              end, for a run whose entire outcome was decided by a judge call that appears nowhere.
+              The agent plane does not fill the gap either, because it only holds runner turns. The
+              published gitmcp tape of 03:30:29.022Z is 84 assistant turns and 95 user turns, every one of
+              them the runner model, with zero turns from the judge. The published microsoft learn tape is
+              exactly two lines, a meta and an end, for a run whose entire outcome was decided by a judge
+              call that appears nowhere.
             </p>
           </div>
           <div class="fail-field">
@@ -1251,20 +1363,43 @@
               Seven currently published refusals rest on judge output that no recording contains. The
               standing rule for this product is that every flag or finding must link to the recorded session
               that justifies it. For those seven, no such recording exists, and the rule is not being met.
+              It is also the reason entry <a href="#f03">03</a> had to be reconstructed from drop totals
+              rather than read off a tape.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">Status</p>
+            <p class="field-label">What was fixed</p>
             <p>
-              Open. It is the reason entry <a href="#f03">03</a> had to be reconstructed from drop totals
-              rather than read off a tape.
+              The ledger can now carry the pattern. <code>DroppedTask.evidence</code> gained
+              <code>checkPattern</code>, plus <code>checkPatternRepaired</code> when a pattern was translated
+              into ECMAScript and then rejected anyway, so both forms are on the record, and the check's
+              value or tool where the check kind has one. It is filled from the raw candidate rather than
+              from a validated check, so a drop that happens before a valid check exists still carries it.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">Why it is still open</p>
+            <p>
+              Nothing published shows a pattern. No run has been executed under the generator that writes the
+              field: all 17 rows on the board are <code>fitness-report-generator/2</code>, and none of the
+              203 drops in the ledgers on disk carries a <code>checkPattern</code> key. A field that exists
+              only in the code is not a record a reader can check.
+            </p>
+            <p>
+              The rest of the entry is untouched. <code>suite-meta.json</code> is still not copied into
+              <code>site/</code> by the publish step, which copies the two tapes and nothing else, and
+              <code>runs/</code> is still gitignored, so the ledger is still unpublished whatever it now
+              holds. And the judge call still reaches no tape, so the seven refusals above still rest on
+              output no recording contains.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">Evidence</p>
             <ul class="ev-list">
-              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L380-L386" rel="noopener noreferrer">src/tasks/synthesize.ts lines 380 to 386</a>, the <code>DroppedTask</code> evidence shape with no pattern field</li>
-              <li><span class="ev-kind">artifact</span> <code>runs/sweep/gitmcp-docs-the null-hard generator/agent.jsonl</code> and <code>runs/sweep/microsoft-learn-the null-hard generator/agent.jsonl</code>. Not linkable: <code>runs/</code> is gitignored. The published agent tapes on this origin show the same shape</li>
+              <li><span class="ev-kind">source</span> <a href="https://github.com/craigm26/fitness-report/blob/757986b/src/tasks/synthesize.ts#L380-L386" rel="noopener noreferrer">src/tasks/synthesize.ts lines 380 to 386 before the fix</a>, the <code>DroppedTask</code> evidence shape with no pattern field</li>
+              <li><span class="ev-kind">test</span> <code>test/synthesize.test.ts</code>: "records the pattern of a check that could not compile"; "records the pattern of a check rejected as a shape rather than an answer"; "records both forms when a repaired pattern is then rejected"</li>
+              <li><span class="ev-kind">artifact</span> <a href="traces/gitmcp-io-2026-08-20T03-30-29-022Z/agent.jsonl">the published gitmcp agent tape</a>, 84 assistant and 95 user turns, all <code>claude-sonnet-5</code>, and <a href="traces/learn-microsoft-com-2026-08-20T17-07-23-201Z/agent.jsonl">the published microsoft learn agent tape</a>, two lines</li>
+              <li><span class="ev-kind">file</span> <a href="data/runs.json"><code>data/runs.json</code></a>, <code>dropsByRule</code> counts on every row with <code>detail</code> reading "full ledger in suite-meta.json", a file this origin does not serve</li>
               <li><span class="ev-kind">design</span> <code>DESIGN.md</code>, the standing rule that every finding links to its recorded session</li>
             </ul>
           </div>
@@ -1339,9 +1474,9 @@
                   <tr><th scope="col">Run</th><th scope="col">Time</th><th scope="col">Recorded message</th></tr>
                 </thead>
                 <tbody>
-                  <tr><td>coingecko the null-hard generator</td><td class="m-num">2026-08-19T23:30:59.192Z</td><td>judge returned no text</td></tr>
-                  <tr><td>svelte the null-hard generator</td><td class="m-num">23:34:29.203Z</td><td>judge response contained no task JSON</td></tr>
-                  <tr><td>gitmcp docs the null-hard generator</td><td class="m-num">23:37:55.597Z</td><td>judge response contained no task JSON</td></tr>
+                  <tr><td>coingecko</td><td class="m-num">2026-08-19T23:30:59.192Z</td><td>judge returned no text</td></tr>
+                  <tr><td>svelte</td><td class="m-num">23:34:29.203Z</td><td>judge response contained no task JSON</td></tr>
+                  <tr><td>gitmcp docs</td><td class="m-num">23:37:55.597Z</td><td>judge response contained no task JSON</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1384,10 +1519,18 @@
             <p class="field-label">What it caused</p>
             <p>
               The same three runs broke again, this time inside 19 seconds of each other, all with
-              "Streaming is required for operations that may take longer than 10 minutes": coingecko the null-hard generator at
-              2026-08-19T23:41:05.576Z, svelte the null-hard generator at 23:41:08.758Z, gitmcp docs the null-hard generator at 23:41:24.017Z. The
+              "Streaming is required for operations that may take longer than 10 minutes": coingecko at
+              2026-08-19T23:41:05.576Z, svelte at 23:41:08.758Z, gitmcp docs at 23:41:24.017Z. The
               first of them is eighteen seconds after the previous fix was committed. The streaming fix
               landed at 23:43:17Z, under two minutes after the last of them.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was fixed</p>
+            <p>
+              The judge call streams when the client supports it, and both judge call sites route through
+              that one surface, so the ceiling raised in entry <a href="#f19">19</a> no longer trips the
+              SDK's long-request guard.
             </p>
           </div>
           <div class="fail-field">
@@ -1465,7 +1608,7 @@
               An orphaned request in run 1 paired against run 2's response, and the report carried a latency
               spanning the gap between the two runs: a number describing no call that ever happened. The
               pairing statistics in this harness are ported from that same module, and the multi-session
-              tapes in entry <a href="#f14">14</a> are the shape that triggers it.
+              tapes in entry <a href="#f14">14</a> were that shape, in our own published evidence.
             </p>
           </div>
           <div class="fail-field">
@@ -1545,7 +1688,8 @@
               39-character key in a neutral field stores it verbatim; the post-fix worker returns
               <code>[REDACTED]</code>. The gap stood on the deployed worker for about 19 days, from
               2026-07-31 until the fix. The failing test never ran because the default
-              <code>npm test</code> globs one directory and the share worker's suite lives in another.
+              <code>npm test</code> globbed one directory and the share worker's suite lived in another.
+              Entry <a href="#f25">25</a> is what closing that took.
             </p>
           </div>
           <div class="fail-field">
@@ -1562,8 +1706,8 @@
       <article class="fail" id="f25">
         <div class="fail-head">
           <span class="fail-num">25</span>
-          <h4 class="fail-title">That fix closed the rule gap and not the structural one: the default test command still does not run that suite.</h4>
-          <span class="tag tag-fault">OPEN</span>
+          <h4 class="fail-title">That fix closed the rule gap and not the structural one: the default test command did not run that suite.</h4>
+          <span class="tag tag-ok">CLOSED</span>
         </div>
         <div class="fail-body">
           <div class="fail-field">
@@ -1571,25 +1715,49 @@
             <p>
               The fixing commit's message says the test sat in a suite the default <code>npm test</code>
               never ran, and that both are fixed. The commit does not touch <code>package.json</code>. The
-              test script is still <code>node --test test/*.test.mjs</code>, which globs one directory and
+              test script was still <code>node --test test/*.test.mjs</code>, which globs one directory and
               matches nothing under the share worker's own test directory.
             </p>
           </div>
           <div class="fail-field">
-            <p class="field-label">What it causes</p>
+            <p class="field-label">What it caused</p>
             <p>
-              What the fix actually added is a never-skipping checksum test <em>inside</em> the share
+              What that fix actually added was a never-skipping checksum test <em>inside</em> the share
               worker's own suite, reachable only by running that suite directly. With no continuous
               integration in this organisation by standing policy, a future drift in the deployed worker's
-              rules still has nothing running against it by default. The same class of gap that produced
-              entry <a href="#f24">24</a> is still open.
+              rules had nothing running against it by default, which is the same class of gap that produced
+              entry <a href="#f24">24</a>.
+            </p>
+          </div>
+          <div class="fail-field">
+            <p class="field-label">How it was closed</p>
+            <p>
+              The test script now names both directories,
+              <code>node --test test/*.test.mjs share-worker/test/*.test.mjs</code>. The default
+              <code>npm test</code> runs 395 tests, 361 from the root directory and 34 from the share
+              worker's own suite, and the drift guards appear in its output by name.
+            </p>
+            <p>
+              It was proved by breaking it rather than by reading the script. Corrupting the Google key
+              pattern in the worker's vendored ruleset makes the default command fail two tests, the drift
+              guard and the key-redaction test, and exit non-zero; restoring the file returns it to 395
+              passing with the ruleset unmodified. Adding a test file in a directory the script does not name
+              also makes the default command fail, naming the files that exist and are not run, because a
+              wiring guard now walks the repository for test files and checks the script reaches each one.
+            </p>
+            <p>
+              What has not changed is that nothing runs on a schedule. There is still no continuous
+              integration here by standing policy, so the guard fires when someone runs the suite and not
+              before.
             </p>
           </div>
           <div class="fail-field">
             <p class="field-label">Evidence</p>
             <ul class="ev-list">
-              <li><span class="ev-kind">source</span> mcp-replay <code>package.json</code> line 15, still <code>"test": "node --test test/*.test.mjs"</code>. Repository not public</li>
-              <li><span class="ev-kind">commit</span> mcp-replay <code>6a0228b</code>, whose message claims the structural fix and whose diff does not contain it</li>
+              <li><span class="ev-kind">source</span> mcp-replay <code>package.json</code>, <code>"test": "node --test test/*.test.mjs share-worker/test/*.test.mjs"</code>. Repository not public</li>
+              <li><span class="ev-kind">commit</span> mcp-replay <code>6a0228b</code>, whose message claimed the structural fix and whose diff does not contain it</li>
+              <li><span class="ev-kind">test</span> mcp-replay <code>test/test-wiring.test.mjs</code>: "the default npm test runs every test file in the repo"; "the share worker suite is one of the files it runs"; "every package in the repo with its own tests is reached by the root command"; "the redaction drift guards still exist to be run"</li>
+              <li><span class="ev-kind">test</span> mcp-replay <code>share-worker/test/redact.test.mjs</code>: "the vendored ruleset covers every rule mcp-tape ships (drift test)" and "a Google API key is redacted (the rule the hand-mirrored copy was missing)", both now reached by the default command</li>
             </ul>
           </div>
         </div>
@@ -1688,7 +1856,8 @@
         <div class="caveat">
           <h3 class="caveat-title">Runs under different generator versions or runner models are not comparable</h3>
           <p>
-            Every row carries its task generator as a chip. A the earlier generator row and a the null-hard generator row of the same server are two
+            Every row carries its task generator as a chip. A row from the earlier generator and a row from
+            the null-hard generator of the same server are two
             different measurements, and entry <a href="#f02">02</a> is exactly how far apart they can be:
             the same server, the same tools, a null model passing 10 of 12 under one generator and 0 of 12
             under the next. The runner model is pinned into every score record for the same reason. Token

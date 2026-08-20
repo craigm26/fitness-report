@@ -10,14 +10,19 @@ import { describe, expect, it } from 'vitest';
 
 import type Anthropic from '@anthropic-ai/sdk';
 
+import { evaluateCheck } from '../src/run/agent.js';
+import { redactReport } from '../src/tape/redact.js';
 import {
+  CHECK_PATTERN_FLAGS,
   DEFAULT_JUDGE_MODEL,
   GENERATOR_VERSION,
   MIN_VIABLE_TASKS,
   SYNTHESIZER_VERSION,
+  SYSTEM_PROMPT,
   TaskSynthesisError,
   bindParams,
   canonicalJson,
+  compileCheckPattern,
   computeSuiteHash,
   detectHandleChains,
   findAnswerLeak,
@@ -26,6 +31,7 @@ import {
   longestLiteralRun,
   parseTaskPayload,
   renderPrompt,
+  repairPattern,
   scanAnswerLeak,
   synthesizeTaskSuite,
   taskIsDestructive,
@@ -548,18 +554,18 @@ describe('suiteHash', () => {
     );
   });
 
-  it('changes when the GENERATOR VERSION changes, so no v2 run can pose as a v1 retry', () => {
-    expect(GENERATOR_VERSION).toBe('fitness-report-generator/2');
-    const v2 = computeSuiteHash([TASK_A, TASK_B], CONFIG, 1337);
-    const v1 = computeSuiteHash(
+  it('changes when the GENERATOR VERSION changes, so no run can pose as an older retry', () => {
+    expect(GENERATOR_VERSION).toBe('fitness-report-generator/3');
+    const current = computeSuiteHash([TASK_A, TASK_B], CONFIG, 1337);
+    const older = computeSuiteHash(
       [TASK_A, TASK_B],
-      { ...CONFIG, generatorVersion: 'fitness-report-generator/1', synthesizerVersion: 1 },
+      { ...CONFIG, generatorVersion: 'fitness-report-generator/2', synthesizerVersion: 2 },
       1337,
     );
-    expect(v1).not.toBe(v2);
+    expect(older).not.toBe(current);
     // The version string is in the PREIMAGE, not merely alongside it.
     expect(canonicalJson({ generator: CONFIG, seed: 1337, tasks: [TASK_A] })).toContain(
-      'fitness-report-generator/2',
+      'fitness-report-generator/3',
     );
   });
 
@@ -582,8 +588,8 @@ describe('suiteHash', () => {
 
   it('stamps the generator version onto every synthesized suite', async () => {
     const result = await synthesizeTaskSuite(stub([{ tasks: HEALTHY_TASKS }]).client, baseOptions());
-    expect(result.generator.generatorVersion).toBe('fitness-report-generator/2');
-    expect(result.generator.checkPolicyVersion).toBe(2);
+    expect(result.generator.generatorVersion).toBe('fitness-report-generator/3');
+    expect(result.generator.checkPolicyVersion).toBe(3);
     expect(result.suite.generatorModel).toBe(DEFAULT_JUDGE_MODEL);
   });
 
@@ -1240,7 +1246,7 @@ describe('admission accounting (v2)', () => {
       dropped: { id: string; rule: string; detail: string; evidence?: { unknownTools?: string[] } }[];
     };
 
-    expect(serialized.generator.generatorVersion).toBe('fitness-report-generator/2');
+    expect(serialized.generator.generatorVersion).toBe('fitness-report-generator/3');
     expect(serialized.surface.toolCount).toBe(TOOLS.length);
     expect(serialized.surface.toolNames).toContain('transfer_funds');
     const ghost = serialized.dropped.find((d) => d.id === 'ghost');
@@ -1357,5 +1363,347 @@ describe('expectedTools normalization (v2)', () => {
       kind: 'expected-tools-dedupe',
       detail: 'removed 1 duplicate expectedTools entries',
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GENERATOR v3: the check-pattern dialect
+//
+// 198 of 386 candidates across the sixteen published `fitness-report-generator/2`
+// runs were dropped as `invalid-check` with the detail "regex does not compile",
+// 196 of them on `tool_result_matches`. The published ledger recorded the rule
+// and not the pattern, so these tests pin both halves of the fix: patterns that
+// JavaScript refuses are repaired where an exact translation exists, and every
+// drop now carries the check that caused it.
+// ---------------------------------------------------------------------------
+
+describe('check pattern dialect (v3)', () => {
+  /**
+   * Every `regex` and `tool_result_matches` pattern the published sweep
+   * ADMITTED, sampled across the shapes that appear in it: lookahead
+   * conjunctions, escaped metacharacters, bounded quantifiers, character
+   * classes, alternation, anchors and JSON-key patterns.
+   *
+   * This corpus is the falsifier for "our own validation is rejecting patterns
+   * that would in fact compile". Every one of these compiles, so every one of
+   * them must come back byte-identical and unrepaired.
+   */
+  const PUBLISHED_PATTERNS: readonly string[] = [
+    '_astro',
+    'astro-dev-toolbar',
+    'astro:(before|after)-(swap|preparation)',
+    'prerender\\s*=\\s*false',
+    '(is:inline[\\s\\S]*set:html|set:html[\\s\\S]*is:inline)',
+    '\\b(2[5-9]|3[0-9]|4[0-9])\\b',
+    '400\\s*(KB|KiB|kilobytes)',
+    '51[,.]?200|51\\s*KB',
+    '(?=[\\s\\S]*kaspa)(?=[\\s\\S]*sats)',
+    "market_cap_rank['\"]?\\s*:\\s*137",
+    '"trust_score_rank"\\s*:\\s*9[,\\s}]',
+    'uniswap[\\s\\S]*"?high_7d"?\\s*:?\\s*[0-9]',
+    'express\\.json\\(\\)',
+    '\\[[a-zA-Z]+\\]',
+    '\\$onUpdate',
+    '\\$state\\.raw[\\s\\S]*\\$state\\.snapshot|\\$state\\.snapshot[\\s\\S]*\\$state\\.raw',
+    'exa[\\s\\S]{0,300}?\\d+\\.\\d+\\.\\d+',
+    'arXiv:\\d{4}\\.\\d{4,5}',
+    '#H4sIA[A-Za-z0-9+/=_-]{16,}',
+    'module github\\.com/wader/fq[\\s\\S]*go 1\\.',
+    'tallyCount[\\s\\S]{0,90}not declared with',
+    '(bun (add|install)[\\s\\S]*EXPO_PUBLIC_CONVEX_URL|EXPO_PUBLIC_CONVEX_URL[\\s\\S]*bun (add|install))',
+    'hf://docs/[^\\s`"\']+',
+    '^rate-limit-policy$',
+    'a{2,3}?b',
+    '(?<year>\\d{4})-\\d{2}',
+    '(?<=v)\\d+\\.\\d+',
+    '[]]',
+    '[^]',
+  ];
+
+  it('returns a pattern JavaScript already accepts byte for byte', () => {
+    // The safety property the whole repair rests on: every construct it
+    // translates is one the ECMAScript parser REJECTS, so a pattern that
+    // compiles cannot be changed by the repair existing.
+    for (const pattern of PUBLISHED_PATTERNS) {
+      const repair = repairPattern(pattern);
+      expect(repair.pattern, pattern).toBe(pattern);
+      expect(repair.repaired, pattern).toEqual([]);
+      expect(repair.blockedBy, pattern).toBeUndefined();
+    }
+  });
+
+  it('admits every pattern the published sweep admitted, so validation is not the over-strict half', async () => {
+    for (const pattern of PUBLISHED_PATTERNS) {
+      const compiled = compileCheckPattern(pattern);
+      expect(compiled.ok, pattern).toBe(true);
+    }
+  });
+
+  it('compiles with the same flags the runner compiles with', () => {
+    // src/run/agent.ts safeRegex() uses `new RegExp(pattern, 'i')`. A pattern
+    // that validated here and then failed there would be an indeterminate
+    // task, scored as neither a pass nor a fail.
+    expect(CHECK_PATTERN_FLAGS).toBe('i');
+    const compiled = compileCheckPattern('rate-limit-policy');
+    expect(compiled.ok).toBe(true);
+    if (compiled.ok) expect(compiled.regex.flags).toBe('i');
+  });
+
+  it('strips an inline (?i) anywhere, because the runtime already applies i', () => {
+    // (?i) is the single largest family of non-JavaScript regex syntax and the
+    // one a model reaches for when it cannot predict the casing of prose. It
+    // is also exactly removable here: `safeRegex` compiles with `i` whether
+    // the group is present or not, so the compiled regex is identical.
+    expect(repairPattern('(?i)rate-limit-policy')).toEqual({
+      pattern: 'rate-limit-policy',
+      repaired: ['inline flag group (?i)'],
+    });
+    expect(repairPattern('rate-limit(?i)-policy').pattern).toBe('rate-limit-policy');
+    expect(repairPattern('(?i)[a-z]+-policy').pattern).toBe('[a-z]+-policy');
+  });
+
+  it('rewrites dot-all and multiline anchors instead of guessing at flags', () => {
+    // (?s): a dot that also matches a newline IS [\s\S].
+    expect(repairPattern('(?s)begin.*end').pattern).toBe('begin[\\s\\S]*end');
+    // A dot inside a character class is already literal, and stays untouched.
+    expect(repairPattern('(?s)v[.]\\d.').pattern).toBe('v[.]\\d[\\s\\S]');
+    // (?is): both flags, one group.
+    expect(repairPattern('(?is)Rate.Limit').pattern).toBe('Rate[\\s\\S]Limit');
+    // (?m)^ matches at the start and after a newline in PCRE and in Python
+    // alike, so the rewrite is exact.
+    expect(repairPattern('(?m)^Total: [0-9]+').pattern).toBe('(?:^|(?<=\\n))Total: [0-9]+');
+  });
+
+  it('refuses to translate a multiline $, because the dialects disagree about it', () => {
+    // PCRE and Python let `$` match before a trailing newline and JavaScript
+    // does not. There is no rewrite that provably matches the same text, so
+    // the candidate is dropped rather than quietly re-aimed.
+    const repair = repairPattern('(?m)^rate-limit-policy$');
+    expect(repair.pattern).toBeNull();
+    expect(repair.blockedBy).toContain('multiline `$`');
+  });
+
+  it('translates the named-group and comment syntax of other dialects', () => {
+    expect(repairPattern('(?P<ver>\\d+\\.\\d+\\.\\d+)').pattern).toBe('(?<ver>\\d+\\.\\d+\\.\\d+)');
+    expect(repairPattern('(?P<w>[a-z]+)-(?P=w)').pattern).toBe('(?<w>[a-z]+)-\\k<w>');
+    expect(repairPattern("(?'ver'\\d+\\.\\d+)").pattern).toBe('(?<ver>\\d+\\.\\d+)');
+    // A comment matches nothing, so removing it cannot change a match.
+    expect(repairPattern('(?#the release line)rate-limit-policy').pattern).toBe('rate-limit-policy');
+  });
+
+  it('drops, and names, a construct with no exact ECMAScript form', () => {
+    // An atomic group and a possessive quantifier both forbid backtracking,
+    // which JavaScript cannot express: the non-capturing or greedy form
+    // matches strictly more text, so translating either would change what the
+    // check accepts. Verbose mode changes what whitespace means.
+    const atomic = repairPattern('(?>rate-limit-policy)+');
+    expect(atomic.pattern).toBeNull();
+    expect(atomic.blockedBy).toContain('atomic group');
+
+    const possessive = repairPattern('rate-limit-policy[a-z]*+');
+    expect(possessive.pattern).toBeNull();
+    expect(possessive.blockedBy).toContain('possessive quantifier');
+
+    const verbose = repairPattern('(?x) rate - limit # the policy page');
+    expect(verbose.pattern).toBeNull();
+    expect(verbose.blockedBy).toContain('inline flag group');
+
+    const conditional = repairPattern('(?(1)rate-limit|policy)');
+    expect(conditional.pattern).toBeNull();
+    expect(conditional.blockedBy).toContain('conditional group');
+  });
+
+  it('keeps the meaning of a repaired pattern under the runner own evaluator', async () => {
+    // The proof that a repair is not a re-aim: the repaired pattern, run
+    // through the predicate evaluator the drive uses, accepts and rejects the
+    // same text the generator meant it to.
+    const compiled = compileCheckPattern('(?i)Rate-Limit-Policy');
+    expect(compiled.ok).toBe(true);
+    if (!compiled.ok) return;
+    const task: FitnessTask = {
+      id: 'repaired',
+      prompt: 'find the page',
+      expectedTools: ['search_docs'],
+      check: { kind: 'regex', where: 'final_text', pattern: compiled.pattern },
+      destructive: false,
+    };
+    expect(
+      await evaluateCheck(task.check, { finalText: 'the rate-limit-policy page', calls: [] }, task),
+    ).toBe(true);
+    expect(
+      await evaluateCheck(task.check, { finalText: 'the retry-policy page', calls: [] }, task),
+    ).toBe(false);
+  });
+
+  it('tells the generator which dialect it is being compiled in', () => {
+    // The prompt made tool_result_matches mandatory and never said what a
+    // pattern would be compiled by. Both halves now live in the same section.
+    expect(SYSTEM_PROMPT).toContain('REGEX DIALECT');
+    expect(SYSTEM_PROMPT).toContain('ECMAScript');
+    expect(SYSTEM_PROMPT).toContain('(?i)');
+    expect(SYSTEM_PROMPT).toContain('i flag already applied');
+  });
+
+  it('admits a candidate the published generator dropped, and records the translation', async () => {
+    const s = stub([
+      {
+        tasks: [
+          {
+            ...HEALTHY_TASKS[0],
+            id: 'foreign-dialect',
+            promptTemplate: 'Find the page describing what happens after too many {{noun}}.',
+            params: [{ name: 'noun', value: 'requests' }],
+            answerKey: 'rate-limit-policy',
+            check: {
+              kind: 'tool_result_matches',
+              tool: 'search_docs',
+              pattern: '(?i)rate-limit-policy',
+            },
+          },
+        ],
+      },
+    ]);
+    const result = await synthesizeTaskSuite(s.client, baseOptions());
+    const task = byId(result.suite.tasks).get('foreign-dialect');
+    // Admitted, where the published generator dropped it as invalid-check.
+    expect(task).toBeDefined();
+    expect(result.dropped).toEqual([]);
+    // The SUITE carries the repaired pattern, because the suite is what the
+    // runner compiles. Storing the original would move the failure downstream
+    // to `evaluateCheck`, where it scores as neither a pass nor a fail.
+    expect(task?.check).toEqual({
+      kind: 'tool_result_matches',
+      tool: 'search_docs',
+      pattern: 'rate-limit-policy',
+    });
+    const repair = result.repairs.find((r) => r.kind === 'check-pattern-dialect');
+    expect(repair?.id).toBe('foreign-dialect');
+    expect(repair?.detail).toContain('inline flag group (?i)');
+    expect(repair?.detail).toContain('"(?i)rate-limit-policy"');
+    expect(repair?.detail).toContain('"rate-limit-policy"');
+  });
+
+  it('still drops an unsalvageable pattern, and says which construct did it', async () => {
+    const s = stub([
+      {
+        tasks: [
+          {
+            ...HEALTHY_TASKS[0],
+            id: 'atomic',
+            check: {
+              kind: 'tool_result_matches',
+              tool: 'search_docs',
+              pattern: '(?>rate-limit-policy)',
+            },
+          },
+        ],
+      },
+    ]);
+    const result = await synthesizeTaskSuite(s.client, baseOptions());
+    const drop = result.dropped.find((d) => d.id === 'atomic');
+    expect(drop?.reason).toBe('invalid-check');
+    expect(drop?.detail).toContain('regex does not compile');
+    expect(drop?.detail).toContain('atomic group');
+    expect(byId(result.suite.tasks).has('atomic')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The drop ledger carries the check that did the rejecting
+// ---------------------------------------------------------------------------
+
+describe('drop ledger evidence (v3)', () => {
+  const dropFor = async (task: Record<string, unknown>) => {
+    const s = stub([{ tasks: [task] }]);
+    const result = await synthesizeTaskSuite(s.client, baseOptions());
+    return result.dropped[0];
+  };
+
+  it('records the pattern of a check that could not compile', async () => {
+    // Without this the 198 published "regex does not compile" drops name no
+    // pattern at all, so a reader cannot tell a broken generator from a
+    // correctly refused candidate.
+    const drop = await dropFor({
+      ...HEALTHY_TASKS[0],
+      id: 'uncompilable',
+      check: { kind: 'tool_result_matches', tool: 'search_docs', pattern: '(?>rate-limit)' },
+    });
+    expect(drop?.evidence?.checkKind).toBe('tool_result_matches');
+    expect(drop?.evidence?.checkPattern).toBe('(?>rate-limit)');
+    expect(drop?.evidence?.checkTool).toBe('search_docs');
+  });
+
+  it('records the pattern of a check rejected as a shape rather than an answer', async () => {
+    const drop = await dropFor({
+      ...HEALTHY_TASKS[0],
+      id: 'shape',
+      check: { kind: 'regex', where: 'final_text', pattern: '[0-9]{3,}' },
+    });
+    expect(drop?.reason).toBe('check-too-permissive');
+    expect(drop?.evidence?.checkPattern).toBe('[0-9]{3,}');
+  });
+
+  it('records both forms when a repaired pattern is then rejected', async () => {
+    // The rule judged the ECMAScript form and the generator wrote the other
+    // one. A ledger carrying only one of them cannot be argued with.
+    const drop = await dropFor({
+      ...HEALTHY_TASKS[0],
+      id: 'repaired-then-rejected',
+      check: { kind: 'regex', where: 'final_text', pattern: '(?i)[0-9]{3,}' },
+    });
+    expect(drop?.reason).toBe('check-too-permissive');
+    expect(drop?.evidence?.checkPattern).toBe('(?i)[0-9]{3,}');
+    expect(drop?.evidence?.checkPatternRepaired).toBe('[0-9]{3,}');
+  });
+
+  it('records the literal of a substring check and the tool of a tool_called check', async () => {
+    const substring = await dropFor({
+      ...HEALTHY_TASKS[0],
+      id: 'tiny',
+      check: { kind: 'substring', where: 'final_text', value: 'ok' },
+    });
+    expect(substring?.evidence?.checkKind).toBe('substring');
+    expect(substring?.evidence?.checkValue).toBe('ok');
+
+    const called = await dropFor({
+      ...HEALTHY_TASKS[0],
+      id: 'called-only',
+      check: { kind: 'tool_called', tool: 'search_docs' },
+    });
+    expect(called?.evidence?.checkKind).toBe('tool_called');
+    expect(called?.evidence?.checkTool).toBe('search_docs');
+  });
+
+  it('records the predicate the cold answer was graded against on a null screen drop', async () => {
+    const screenClient: JudgeClient = {
+      messages: {
+        create: async () => cannedMessage('The answer is token bucket.'),
+      },
+    };
+    const s = stub([{ tasks: [HEALTHY_TASKS[0]] }]);
+    const result = await synthesizeTaskSuite(
+      s.client,
+      baseOptions({ nullScreen: { client: screenClient, model: 'claude-sonnet-5' } }),
+    );
+    const drop = result.dropped.find((d) => d.reason === 'null_screen');
+    expect(drop?.evidence?.checkKind).toBe('substring');
+    expect(drop?.evidence?.checkValue).toBe('token bucket');
+    expect(drop?.evidence?.coldAnswerExcerpt).toContain('token bucket');
+  });
+
+  it('survives publish-time redaction, and is redacted by the same rules as everything else', async () => {
+    // The evidence is additive INSIDE the same object the redactor already
+    // walks: `redactReport` runs over suite-meta.json on the published copy.
+    // A check literal is not a credential and must survive; a field the rules
+    // name must not, whichever object it sits in.
+    const drop = await dropFor({
+      ...HEALTHY_TASKS[0],
+      id: 'uncompilable',
+      check: { kind: 'tool_result_matches', tool: 'search_docs', pattern: '(?>rate-limit)' },
+    });
+    const published = redactReport({ dropped: [drop], token: 'sk-live-not-a-real-key' });
+    expect(published.dropped[0]?.evidence?.checkPattern).toBe('(?>rate-limit)');
+    expect(published.dropped[0]?.evidence?.checkTool).toBe('search_docs');
+    expect(published.token).not.toBe('sk-live-not-a-real-key');
   });
 });

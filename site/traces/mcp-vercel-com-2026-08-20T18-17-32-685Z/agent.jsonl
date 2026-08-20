@@ -1,4 +1,2 @@
-{"v":1,"type":"meta","startedAt":"2026-08-20T18:14:30.352Z","label":"mcp-vercel-com","command":["fitness-report","https://mcp.vercel.com/docs/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"no-suite"}}
-{"t":"2026-08-20T18:16:32.960Z","type":"end","reason":"eval_complete","durationMs":122608}
 {"v":1,"type":"meta","startedAt":"2026-08-20T18:17:32.685Z","label":"mcp-vercel-com","command":["fitness-report","https://mcp.vercel.com/docs/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"0c81db3270ddb453e51546e4966fae18ba0d0a2e59c58831708ee88648b8f3cb"}}
 {"t":"2026-08-20T18:19:44.608Z","type":"end","reason":"eval_complete","durationMs":131923}

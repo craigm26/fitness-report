@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { TapeWriter } from '../src/tape/writer.js';
+import { TapeExistsError, TapeWriter } from '../src/tape/writer.js';
 import { redactReport, redactTape, scrubSecrets } from '../src/tape/redact.js';
 import { computeTraceStats, type TraceRecord } from '../src/score/stats.js';
 import type { TapeLine, TapeMessageLine, TapeTurnLine } from '../src/types.js';
@@ -379,6 +379,90 @@ describe('TapeWriter — golden two-plane run', () => {
     const lines = await readLines(join(dir, 'mcp.jsonl'));
     expect(lines.filter((l) => l.type === 'end')).toHaveLength(1);
   });
+
+  // -------------------------------------------------------------------------
+  // DELTA 4: one tape file is one session.
+  //
+  // The writer was ported with `open(path, 'a')` from a producer that derived a
+  // fresh `<ts>-<label>.jsonl` path per run, where append could never collide.
+  // Our paths are `<outDir>/<plane>.jsonl`, so a rerun into an out dir that had
+  // already been used appended a SECOND meta line and a second session onto the
+  // first run's tape. Five of the 33 published trace directories were left that
+  // way, each serving an earlier run's frames under a later run's replay link.
+  // -------------------------------------------------------------------------
+
+  async function openTape(path: string, at: string, truncate?: boolean): Promise<void> {
+    const w = await TapeWriter.open({
+      path,
+      meta: { startedAt: at, label: 'canary', command: ['fitness-report'], kind: 'mcp' },
+      ...(truncate === undefined ? {} : { truncate }),
+    });
+    await w.writeMessage({
+      t: at,
+      dir: 'in',
+      raw: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lookup_user', arguments: {} } },
+    });
+    await w.close({ t: at, reason: 'eval_complete' });
+  }
+
+  it('refuses to append a second session onto a tape that already exists', async () => {
+    const dir = await tmpRunDir();
+    const path = join(dir, 'mcp.jsonl');
+    await openTape(path, T0);
+    const first = await readLines(path);
+
+    await expect(
+      TapeWriter.open({
+        path,
+        meta: { startedAt: iso(60_000), label: 'canary', command: ['fitness-report'], kind: 'mcp' },
+      }),
+    ).rejects.toThrow(TapeExistsError);
+
+    // The refusal must leave the recording that is there exactly as it was: one
+    // meta line, one end line, and not a byte added by the attempt.
+    expect(await readLines(path)).toEqual(first);
+    expect(first.filter((l) => l.type === 'meta')).toHaveLength(1);
+  });
+
+  it('carries the path and the byte count on the refusal', async () => {
+    const dir = await tmpRunDir();
+    const path = join(dir, 'mcp.jsonl');
+    await openTape(path, T0);
+    const error = await TapeWriter.open({
+      path,
+      meta: { startedAt: iso(60_000), label: 'canary', command: ['fitness-report'], kind: 'mcp' },
+    }).then(
+      () => null,
+      (e: unknown) => e as TapeExistsError,
+    );
+    expect(error).toBeInstanceOf(TapeExistsError);
+    expect(error?.path).toBe(path);
+    expect(error?.bytes).toBeGreaterThan(0);
+    expect(error?.message).toMatch(/One tape file is one session/);
+  });
+
+  it('starts a clean single-session tape when the caller asks to truncate', async () => {
+    const dir = await tmpRunDir();
+    const path = join(dir, 'mcp.jsonl');
+    await openTape(path, T0);
+    await openTape(path, iso(60_000), true);
+
+    const lines = await readLines(path);
+    expect(lines.filter((l) => l.type === 'meta')).toHaveLength(1);
+    expect(lines.filter((l) => l.type === 'end')).toHaveLength(1);
+    // The surviving session is the SECOND run, not a mixture of the two.
+    expect((lines[0] as { startedAt: string }).startedAt).toBe(iso(60_000));
+  });
+
+  it('treats a zero-byte file as no recording at all', async () => {
+    const dir = await tmpRunDir();
+    const path = join(dir, 'mcp.jsonl');
+    // An interrupted open leaves an empty file behind. That is not evidence and
+    // must not refuse a run.
+    await writeFile(path, '', 'utf8');
+    await openTape(path, T0);
+    expect((await readLines(path)).filter((l) => l.type === 'meta')).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -536,7 +620,33 @@ describe('redactReport', () => {
 // CONFORMANCE ORACLE: our tapes must be readable by the mcp-tape CLI, and its
 // counts must agree with ours. mcp-tape is a devDependency, bin-only on npm
 // (no exports, no types) — it is NEVER imported at runtime, only shelled out to.
+//
+// THE ORACLE MUST POST-DATE THE DEFECTS IT IS ASKED TO CATCH. The pin was
+// ^0.7.2, which predates session-scoped pairing and the multiple-sessions
+// warning that shipped in 0.7.3. Measured on the published svelte tape, which
+// held three appended sessions before the repair: 0.7.2 emitted no `warnings`
+// key at all, reported the FIRST session's 208 seconds as the duration of a
+// file spanning 31 minutes, and merged 62 tool calls down to 60 by cross-
+// pairing JSON-RPC ids that restart with every session. It could not have found
+// the appended-session defect, and it did not.
 // ---------------------------------------------------------------------------
+
+/** The floor the oracle's own guarantees rest on (DESIGN decision 5). */
+const MIN_ORACLE_VERSION = [0, 7, 3] as const;
+
+function parseSemver(v: string): number[] {
+  return v.split('.').map((p) => Number.parseInt(p, 10));
+}
+
+function atLeast(actual: string, floor: readonly number[]): boolean {
+  const a = parseSemver(actual);
+  for (let i = 0; i < floor.length; i++) {
+    const got = a[i] ?? 0;
+    const want = floor[i] as number;
+    if (got !== want) return got > want;
+  }
+  return true;
+}
 
 interface OracleStats {
   schema: string;
@@ -550,6 +660,11 @@ interface OracleStats {
     producer: string;
   };
   tools: { name: string; calls: number; errors: number }[];
+  /**
+   * 0.7.3 and later. An EMPTY array is the positive claim that the checks ran;
+   * an ABSENT key means the oracle predates them and checked nothing.
+   */
+  warnings?: { code: string; message: string; sessions?: number }[];
 }
 
 async function mcpTapeStats(file: string): Promise<OracleStats> {
@@ -564,6 +679,31 @@ async function mcpTapeStats(file: string): Promise<OracleStats> {
 }
 
 describe('mcp-tape conformance oracle', () => {
+  it('is pinned to a version that knows about appended sessions', async () => {
+    const pkg = JSON.parse(
+      await readFile(join(REPO_ROOT, 'package.json'), 'utf8'),
+    ) as { devDependencies: Record<string, string> };
+    const pin = pkg.devDependencies['mcp-tape'];
+    expect(pin).toBeDefined();
+    // A caret pin is fine; the FLOOR is what matters. ^0.7.2 resolves to 0.7.2
+    // on a fresh install and that oracle is blind to the defect it must catch.
+    expect(atLeast((pin as string).replace(/^[\^~>=]+/, ''), MIN_ORACLE_VERSION)).toBe(true);
+
+    let installed: string;
+    try {
+      const { stdout } = await execFileAsync('npx', ['--no-install', 'mcp-tape', '--version'], {
+        cwd: REPO_ROOT,
+        timeout: 60_000,
+      });
+      installed = stdout.trim();
+    } catch (err) {
+      console.warn(`[skip] mcp-tape binary unavailable: ${(err as Error).message}`);
+      return;
+    }
+    // The pin is a claim about the lockfile; this is the binary the oracle runs.
+    expect(atLeast(installed, MIN_ORACLE_VERSION)).toBe(true);
+  }, 120_000);
+
   it('parses both planes and agrees with our own call counts', async () => {
     const g = await writeGoldenRun();
 
@@ -603,6 +743,10 @@ describe('mcp-tape conformance oracle', () => {
       exitCode: null,
       producer: 'fitness-report@0.1.0',
     });
+    // 0.7.3: an EMPTY array is the positive claim that the caveat checks ran on
+    // a tape we wrote. An absent key would mean the oracle checked nothing.
+    expect(mcpStats.warnings).toEqual([]);
+    expect(agentStats.warnings).toEqual([]);
     expect(mcpStats.session.records).toMatchObject({
       meta: 1,
       message: 6,
@@ -646,5 +790,104 @@ describe('mcp-tape conformance oracle', () => {
       agent: (await readLines(g.agentPath)) as unknown as TraceRecord[],
     });
     expect(ourAgent.planes.agent.session.records).toMatchObject(agentStats.session.records);
+  }, 120_000);
+
+  it('names an appended second session and keeps its calls apart', async () => {
+    // The exact shape the append bug produced: two runs of the same server, in
+    // one file, reusing the same JSON-RPC ids (an id is unique per connection
+    // and restarts with every session, never globally).
+    const dir = await tmpRunDir();
+    const one = join(dir, 'one-session.jsonl');
+    const two = join(dir, 'two-sessions.jsonl');
+    const session = async (path: string, at: string, truncate: boolean): Promise<void> => {
+      const w = await TapeWriter.open({
+        path,
+        meta: {
+          startedAt: at,
+          label: 'canary',
+          command: ['fitness-report', SERVER_URL],
+          kind: 'mcp',
+          source: `fitness-report@${HARNESS_VERSION}`,
+        },
+        truncate,
+      });
+      await w.writeMessage({
+        t: at,
+        dir: 'in',
+        raw: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lookup_user', arguments: {} } },
+      });
+      await w.writeMessage({
+        t: at,
+        dir: 'out',
+        raw: { jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: 'ok' }] } },
+      });
+      await w.close({ t: at, reason: 'eval_complete' });
+    };
+    await session(one, T0, false);
+    // The writer refuses to build this file, so the test appends the two
+    // sessions by hand: the point is what the ORACLE says about a file that
+    // already looks like this, five of which we had published.
+    await session(two, T0, false);
+    await session(two, iso(3_600_000), true);
+    const tail = await readFile(two, 'utf8');
+    await writeFile(two, (await readFile(one, 'utf8')) + tail, 'utf8');
+
+    let oneStats: OracleStats;
+    let twoStats: OracleStats;
+    try {
+      oneStats = await mcpTapeStats(one);
+      twoStats = await mcpTapeStats(two);
+    } catch (err) {
+      console.warn(`[skip] mcp-tape conformance oracle unavailable: ${(err as Error).message}`);
+      return;
+    }
+
+    expect(oneStats.warnings).toEqual([]);
+    expect(twoStats.warnings?.map((w) => w.code)).toContain('multiple-sessions-in-file');
+    expect(twoStats.warnings?.find((w) => w.code === 'multiple-sessions-in-file')?.sessions).toBe(2);
+    expect(twoStats.session.records.meta).toBe(2);
+
+    // Session-scoped pairing (0.7.3). Under ^0.7.2 the two sessions' shared id
+    // cross-paired and one of the two calls was silently merged away, which is
+    // how an oracle that agrees with our counts still passed on a tape holding
+    // two runs.
+    expect(oneStats.tools.reduce((a, t) => a + t.calls, 0)).toBe(1);
+    expect(twoStats.tools.reduce((a, t) => a + t.calls, 0)).toBe(2);
+  }, 120_000);
+
+  it('finds one session in every published tape', async () => {
+    // The published artifacts are the product. Five of 33 trace directories
+    // held more than one session, so a replay link for one run opened another
+    // run's frames. This reads the files on disk, not a fixture.
+    const traceRoot = join(REPO_ROOT, 'site', 'traces');
+    const dirs = (await readdir(traceRoot, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+    expect(dirs.length).toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const runId of dirs) {
+      // The run id ends in the run's own start time with `:` and `.` replaced.
+      const stamp = /(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(runId);
+      expect(stamp, `${runId} does not end in a run timestamp`).not.toBeNull();
+      const [, day, hh, mm, ss, ms] = stamp as RegExpExecArray;
+      const startedAt = `${day}T${hh}:${mm}:${ss}.${ms}Z`;
+      for (const plane of ['mcp', 'agent'] as const) {
+        const lines = await readLines(join(traceRoot, runId, `${plane}.jsonl`));
+        const metas = lines.filter((l) => l.type === 'meta');
+        if (metas.length !== 1) {
+          offenders.push(`${runId}/${plane}.jsonl holds ${metas.length} meta lines`);
+          continue;
+        }
+        // And it is THIS run's session, not a neighbour's.
+        if (metas[0]?.startedAt !== startedAt) {
+          offenders.push(
+            `${runId}/${plane}.jsonl was recorded by the run that started at ${String(metas[0]?.startedAt)}`,
+          );
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   }, 120_000);
 });

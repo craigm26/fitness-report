@@ -1926,6 +1926,949 @@
    "credentialContext": "anonymous"
   },
   "run": {
+   "id": "knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z",
+   "startedAt": "2026-08-20T16:45:18.024Z",
+   "harnessVersion": "0.1.0",
+   "runnerModel": "claude-sonnet-5",
+   "judgeModel": "claude-opus-5",
+   "suiteHash": "1018b373413a080988a6191a416843814405181d7e34339752448728f9b6bd63",
+   "taskBudget": 20000,
+   "generatorVersion": "fitness-report-generator/2",
+   "nullScreenEnabled": true,
+   "judgeUsage": {
+    "model": "claude-opus-5",
+    "calls": 3,
+    "inputTokens": 7221,
+    "outputTokens": 18331,
+    "cacheReadTokens": 0,
+    "cacheCreationTokens": 0,
+    "estCostUsd": 0.492154,
+    "partial": false,
+    "uncountedCalls": 0,
+    "failedCalls": 0,
+    "byModel": [
+     {
+      "model": "claude-opus-5",
+      "calls": 2,
+      "inputTokens": 7069,
+      "outputTokens": 18213,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "estCostUsd": 0.49067
+     },
+     {
+      "model": "claude-sonnet-5",
+      "calls": 1,
+      "inputTokens": 152,
+      "outputTokens": 118,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "estCostUsd": 0.001484
+     }
+    ],
+    "byPhase": [
+     {
+      "phase": "synthesis",
+      "calls": 1,
+      "inputTokens": 6810,
+      "outputTokens": 18207
+     },
+     {
+      "phase": "null_screen",
+      "calls": 1,
+      "inputTokens": 152,
+      "outputTokens": 118
+     },
+     {
+      "phase": "rubric",
+      "calls": 1,
+      "inputTokens": 259,
+      "outputTokens": 6
+     }
+    ],
+    "notes": [
+     "Judge spend is measured from the API usage blocks of the synthesis calls (including retries and every extension batch), the null screen probes and the rubric checks. None of those reach a tape, so this figure is ADDITIVE to the trace_stats cost rather than part of it."
+    ]
+   }
+  },
+  "probes": {
+   "specCurrency": "2025-03-26",
+   "findings": [
+    {
+     "id": "spec-currency",
+     "pass": false,
+     "detail": "negotiated 2025-03-26 (legacy era; the current revision is 2026-07-28)",
+     "evidence": {
+      "negotiatedVersion": "2025-03-26",
+      "era": "legacy"
+     }
+    },
+    {
+     "id": "bogus-version-accepted",
+     "pass": true,
+     "detail": "counter-offered 2025-03-26 instead of the bogus 1999-01-01",
+     "evidence": {
+      "status": 200,
+      "offered": "1999-01-01",
+      "envelope": {
+       "jsonrpc": "2.0",
+       "id": "fitness-probe-bogus-version",
+       "result": {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {
+         "tools": {
+          "listChanged": false
+         }
+        },
+        "serverInfo": {
+         "name": "AWSKnowledgeMCP",
+         "version": "1.0.0"
+        }
+       }
+      },
+      "answeredVersion": "2025-03-26"
+     }
+    },
+    {
+     "id": "header-mismatch-accepted",
+     "pass": null,
+     "detail": "could not check: SEP-2243 header conformance is defined on the modern era only; this connection negotiated 2025-03-26 (legacy)"
+    },
+    {
+     "id": "server-discover-present",
+     "pass": null,
+     "detail": "could not check: server/discover is a 2026-07-28 MUST; this connection negotiated 2025-03-26 (legacy)"
+    },
+    {
+     "id": "cache-hints",
+     "pass": null,
+     "detail": "could not check: ttlMs/cacheScope are 2026-07-28 fields; this connection negotiated 2025-03-26 (legacy)"
+    },
+    {
+     "id": "deprecation-surface",
+     "pass": null,
+     "detail": "could not check: deleted-vocabulary checks are defined against 2026-07-28; this connection negotiated 2025-03-26",
+     "evidence": {
+      "deletedVocabulary": [],
+      "notes": [],
+      "toolCount": 5,
+      "era": "legacy"
+     }
+    }
+   ]
+  },
+  "gates": {
+   "order": [
+    "protocol_hygiene",
+    "structural",
+    "answer_leak",
+    "suite_size",
+    "plan_power",
+    "construct",
+    "null_baseline"
+   ],
+   "records": [
+    {
+     "gate": "protocol_hygiene",
+     "ok": false,
+     "costTier": "free",
+     "reason": "hygiene_findings_present",
+     "detail": {
+      "note": "Protocol hygiene is a reported column, not a refusal. A hygiene failure is a fact about the server, not evidence that this eval is invalid.",
+      "failed": [
+       "spec-currency"
+      ]
+     }
+    },
+    {
+     "gate": "structural",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nRequested": 24,
+      "nGenerated": 12,
+      "nHolding": 12,
+      "admissionRate": 0.5,
+      "holdRate": 1,
+      "minAdmissionRate": 0.25,
+      "minGenerated": 8,
+      "failures": [],
+      "ok": true,
+      "reason": "ok",
+      "explain": "OK: 12/12 admitted cases hold, admission rate 50.0%. Necessary, not sufficient: run the construct gate.",
+      "synthesis": {
+       "suiteHash": "1018b373413a080988a6191a416843814405181d7e34339752448728f9b6bd63",
+       "generatorVersion": "fitness-report-generator/2",
+       "generatorModel": "claude-opus-5",
+       "yield": {
+        "emitted": 24,
+        "rewritten": 0,
+        "candidates": 24,
+        "entriesDiscarded": 0,
+        "admitted": 12,
+        "trimmed": 1,
+        "admissionRate": 0.5,
+        "reconciles": true,
+        "shortfall": 0,
+        "minTasks": 8,
+        "insufficient": false
+       },
+       "dropsByRule": {
+        "invalid-check": 11
+       },
+       "nullScreen": {
+        "enabled": true,
+        "model": "claude-sonnet-5",
+        "screened": 1,
+        "dropped": 0,
+        "errors": 0,
+        "inputTokens": 152,
+        "outputTokens": 118
+       },
+       "repairs": 0,
+       "leaksAtGeneration": 0,
+       "regenerationAttempted": false,
+       "failure": null,
+       "detail": "full ledger in suite-meta.json"
+      },
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 1,
+      "note": "nRequested is the candidate count the generator actually put through validation. Generator fitness-report-generator/2: v1 and v2 admission rates are not comparable and must never share a table."
+     }
+    },
+    {
+     "gate": "answer_leak",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "leaks": [],
+      "regenerationAttempted": false,
+      "leaksFoundAtGeneration": [],
+      "corpus": [
+       "rendered prompt",
+       "bound params",
+       "server instructions",
+       "tool descriptions"
+      ],
+      "contextLeakDropsAtGeneration": 0
+     }
+    },
+    {
+     "gate": "suite_size",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nTasks": 12,
+      "minTasks": 8,
+      "toolCount": 5,
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 1,
+      "note": "With a median of 2.5 tools on the open roster, a suite below 8 tasks cannot separate a good server from a lucky one. This refuses rather than publishing a 2-task 100 percent."
+     }
+    },
+    {
+     "gate": "plan_power",
+     "ok": true,
+     "costTier": "free",
+     "reason": "underpowered_recorded",
+     "detail": {
+      "requiredN": 78,
+      "actualN": 12,
+      "threshold": 0.9,
+      "detectableRate": 0.8,
+      "power": 0.808179164040748,
+      "note": "This does not refuse. It is why a raw PASS below the planned n downgrades to EXTEND under the published-verdict rule."
+     }
+    },
+    {
+     "gate": "construct",
+     "ok": false,
+     "costTier": "paid",
+     "verdict": {
+      "outcome": "FAIL",
+      "k": 0,
+      "n": 12,
+      "threshold": 0.9,
+      "alpha": 0.05,
+      "pValue": 9.999999999999967e-13
+     },
+     "reason": "below_min_rate",
+     "detail": {
+      "n": 12,
+      "nIntended": 0,
+      "rate": 0,
+      "errors": 0,
+      "errorRate": 0,
+      "maxErrorRate": 0.05,
+      "compromised": false,
+      "reps": 1,
+      "published": {
+       "outcome": "FAIL",
+       "k": 0,
+       "n": 12,
+       "threshold": 0.9,
+       "alpha": 0.05,
+       "pValue": 9.999999999999967e-13,
+       "rawOutcome": "FAIL",
+       "downgraded": false,
+       "wilsonLow": 0,
+       "wilsonHigh": 0.2425007574992425,
+       "requiredN": 78,
+       "achievedPower": 0.20543105023999975,
+       "detectableRate": 0.8,
+       "reason": "failed"
+      },
+      "extensionsConsumed": 0,
+      "pooled": {
+       "k": 0,
+       "n": 12,
+       "parts": [
+        {
+         "n": 12,
+         "nIntended": 0,
+         "errors": 0
+        }
+       ],
+       "extensionsConsumed": 0,
+       "extensionsRemaining": 2,
+       "policy": {
+        "extensionSize": 6,
+        "maxExtensions": 2
+       }
+      },
+      "extensions": [],
+      "resolvedToFail": false,
+      "extensionProtocol": "Extension policy fixed before the first model call: 6 tasks per extension, at most 2. An EXTEND verdict buys one batch of new tasks from the same generator at a derived seed, past the same free gates and the same null baselines, run at the same reps; k and n are pooled across the original suite and every batch and the rule is re-applied to the pooled counts. After the last extension an unresolved gate resolves to FAIL. A suite regenerated outside this protocol is a NEW run, never a retry.",
+      "constructOracle": "A reference pass counts only when it both satisfied the check and landed a successful call on a tool the task expects. The reference agent is given the answer key, so a text check alone would pass against a server that returned nothing.",
+      "note": "One rep per task in v0, for cost. evalgate runs three; the divergence is recorded here rather than hidden."
+     }
+    },
+    {
+     "gate": "null_baseline",
+     "ok": false,
+     "costTier": "cheap",
+     "reason": "degenerate_no_signal",
+     "detail": {
+      "tNull": 0,
+      "tAblate": 0,
+      "killThreshold": 0,
+      "outcome": "INDETERMINATE",
+      "halts": true,
+      "ok": false,
+      "reason": "degenerate_no_signal",
+      "rates": [
+       {
+        "label": "no-tools",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "stubbed-empty",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "random-valid-args",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       }
+      ],
+      "percentile": 95,
+      "ratio": 0.5,
+      "signalSource": "construct reference rate (the drive did not run)",
+      "measuredBeforePaidTier": true,
+      "decidedAfter": "construct",
+      "explain": "INDETERMINATE (degenerate_no_signal): the real agent passed nothing, so there is no signal for the noise floor to be compared against. This halts exactly like KILL. It is a different finding from \"noise exceeds signal\" and is reported as one."
+     }
+    }
+   ],
+   "extensionPolicy": {
+    "extensionSize": 6,
+    "maxExtensions": 2
+   },
+   "refusedAt": "construct"
+  },
+  "outcome": "GATE_FAILED",
+  "traceLinks": {
+   "mcp": "https://fitnessreport.dev/traces/knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z/mcp.jsonl",
+   "agent": "https://fitnessreport.dev/traces/knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z/agent.jsonl",
+   "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fknowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z%2Fmcp.jsonl;https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fknowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z%2Fagent.jsonl#view=calls"
+  },
+  "trace_stats": {
+   "schema": "mcp-tape.stats/1",
+   "file": null,
+   "session": {
+    "label": "knowledge-mcp-global-api-aws",
+    "kind": "mcp+llm",
+    "startedAt": "2026-08-20T16:45:18.024Z",
+    "endedAt": "2026-08-20T16:54:15.282Z",
+    "durationMs": 537258,
+    "command": [
+     "fitness-report",
+     "https://knowledge-mcp.global.api.aws/mcp"
+    ],
+    "producer": "fitness-report@0.1.0",
+    "records": {
+     "total": 444,
+     "meta": 2,
+     "message": 64,
+     "event": 194,
+     "turn": 182,
+     "end": 2,
+     "other": 0
+    },
+    "skippedLines": 0,
+    "endReason": "eval_complete",
+    "exitCode": null
+   },
+   "models": {
+    "perModel": [
+     {
+      "model": "claude-sonnet-5",
+      "calls": 85,
+      "inputTokens": 292915,
+      "outputTokens": 18329,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "thinkingTokens": null,
+      "thinkingEstimated": false,
+      "cacheHitRate": 0,
+      "ttftP50Ms": null,
+      "ttftP95Ms": null,
+      "estCostUsd": 0.76912,
+      "priced": true
+     }
+    ],
+    "summary": {
+     "models": 1,
+     "assistantTurns": 85,
+     "turns": 182,
+     "echoedTurns": 0,
+     "inputTokens": 292915,
+     "outputTokens": 18329,
+     "cacheReadTokens": 0,
+     "cacheCreationTokens": 0,
+     "thinkingExactTokens": null,
+     "thinkingEstimatedTokens": null,
+     "cacheHitRate": 0,
+     "totalModelTimeMs": null
+    },
+    "cost": {
+     "estimated": true,
+     "currency": "USD",
+     "totalUsd": 0.76912,
+     "partial": false,
+     "unpricedModels": [],
+     "asOf": "2026-08-19",
+     "source": "bundled"
+    }
+   },
+   "tools": [
+    {
+     "name": "aws___get_regional_availability",
+     "calls": 37,
+     "errors": 0,
+     "p50Ms": null,
+     "p95Ms": null,
+     "origin": "mcp",
+     "pending": 37
+    },
+    {
+     "name": "aws___list_regions",
+     "calls": 8,
+     "errors": 0,
+     "p50Ms": null,
+     "p95Ms": null,
+     "origin": "mcp",
+     "pending": 8
+    },
+    {
+     "name": "aws___search_documentation",
+     "calls": 6,
+     "errors": 0,
+     "p50Ms": null,
+     "p95Ms": null,
+     "origin": "mcp",
+     "pending": 6
+    },
+    {
+     "name": "aws___read_documentation",
+     "calls": 3,
+     "errors": 0,
+     "p50Ms": null,
+     "p95Ms": null,
+     "origin": "mcp",
+     "pending": 3
+    }
+   ],
+   "errors": [],
+   "planes": {
+    "mcp": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "knowledge-mcp-global-api-aws",
+      "kind": "mcp",
+      "startedAt": "2026-08-20T16:45:18.024Z",
+      "endedAt": "2026-08-20T16:54:15.267Z",
+      "durationMs": 537243,
+      "command": [
+       "fitness-report",
+       "https://knowledge-mcp.global.api.aws/mcp"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 260,
+       "meta": 1,
+       "message": 64,
+       "event": 194,
+       "turn": 0,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": null,
+     "tools": [
+      {
+       "name": "aws___get_regional_availability",
+       "calls": 37,
+       "errors": 0,
+       "p50Ms": null,
+       "p95Ms": null,
+       "origin": "mcp",
+       "pending": 37
+      },
+      {
+       "name": "aws___list_regions",
+       "calls": 8,
+       "errors": 0,
+       "p50Ms": null,
+       "p95Ms": null,
+       "origin": "mcp",
+       "pending": 8
+      },
+      {
+       "name": "aws___search_documentation",
+       "calls": 6,
+       "errors": 0,
+       "p50Ms": null,
+       "p95Ms": null,
+       "origin": "mcp",
+       "pending": 6
+      },
+      {
+       "name": "aws___read_documentation",
+       "calls": 3,
+       "errors": 0,
+       "p50Ms": null,
+       "p95Ms": null,
+       "origin": "mcp",
+       "pending": 3
+      }
+     ],
+     "errors": []
+    },
+    "agent": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "knowledge-mcp-global-api-aws",
+      "kind": "llm",
+      "startedAt": "2026-08-20T16:45:18.024Z",
+      "endedAt": "2026-08-20T16:54:15.282Z",
+      "durationMs": 537258,
+      "command": [
+       "fitness-report",
+       "https://knowledge-mcp.global.api.aws/mcp"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 184,
+       "meta": 1,
+       "message": 0,
+       "event": 0,
+       "turn": 182,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": {
+      "perModel": [
+       {
+        "model": "claude-sonnet-5",
+        "calls": 85,
+        "inputTokens": 292915,
+        "outputTokens": 18329,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": 0,
+        "thinkingTokens": null,
+        "thinkingEstimated": false,
+        "cacheHitRate": 0,
+        "ttftP50Ms": null,
+        "ttftP95Ms": null,
+        "estCostUsd": 0.76912,
+        "priced": true
+       }
+      ],
+      "summary": {
+       "models": 1,
+       "assistantTurns": 85,
+       "turns": 182,
+       "echoedTurns": 0,
+       "inputTokens": 292915,
+       "outputTokens": 18329,
+       "cacheReadTokens": 0,
+       "cacheCreationTokens": 0,
+       "thinkingExactTokens": null,
+       "thinkingEstimatedTokens": null,
+       "cacheHitRate": 0,
+       "totalModelTimeMs": null
+      },
+      "cost": {
+       "estimated": true,
+       "currency": "USD",
+       "totalUsd": 0.76912,
+       "partial": false,
+       "unpricedModels": [],
+       "asOf": "2026-08-19",
+       "source": "bundled"
+      }
+     },
+     "tools": [
+      {
+       "name": "aws___get_regional_availability",
+       "calls": 45,
+       "errors": 26,
+       "p50Ms": 2788,
+       "p95Ms": 5209,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "aws___list_regions",
+       "calls": 9,
+       "errors": 6,
+       "p50Ms": 3719,
+       "p95Ms": 9120,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "aws___search_documentation",
+       "calls": 8,
+       "errors": 5,
+       "p50Ms": 2278,
+       "p95Ms": 5267,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "aws___read_documentation",
+       "calls": 3,
+       "errors": 2,
+       "p50Ms": 3747,
+       "p95Ms": 3974,
+       "origin": "turn",
+       "pending": 0
+      }
+     ],
+     "errors": [
+      {
+       "t": "2026-08-20T16:51:28.593Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:31.303Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:35.775Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:35.775Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:42.648Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:46.108Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:53.369Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:55.867Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:59.321Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:51:59.321Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:06.759Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:09.419Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:18.679Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:21.165Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:23.953Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:31.051Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:33.654Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:42.795Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:45.369Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:51.797Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:54.280Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:52:59.350Z",
+       "source": "tool",
+       "name": "aws___list_regions",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:01.927Z",
+       "source": "tool",
+       "name": "aws___list_regions",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:05.999Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:08.621Z",
+       "source": "tool",
+       "name": "aws___search_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:15.572Z",
+       "source": "tool",
+       "name": "aws___list_regions",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:17.920Z",
+       "source": "tool",
+       "name": "aws___list_regions",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:21.639Z",
+       "source": "tool",
+       "name": "aws___list_regions",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:25.956Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:28.824Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:36.052Z",
+       "source": "tool",
+       "name": "aws___read_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:40.026Z",
+       "source": "tool",
+       "name": "aws___read_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:43.744Z",
+       "source": "tool",
+       "name": "aws___search_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:46.882Z",
+       "source": "tool",
+       "name": "aws___list_regions",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:53:58.554Z",
+       "source": "tool",
+       "name": "aws___search_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:54:00.944Z",
+       "source": "tool",
+       "name": "aws___search_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:54:04.347Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:54:07.192Z",
+       "source": "tool",
+       "name": "aws___search_documentation",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      },
+      {
+       "t": "2026-08-20T16:54:09.282Z",
+       "source": "tool",
+       "name": "aws___get_regional_availability",
+       "message": "Error: Error POSTing to endpoint: {\"success\":false,\"error\":\"Http operation is not supported for gateway protocol type MCP\"}"
+      }
+     ]
+    }
+   },
+   "toolsPlane": "mcp"
+  },
+  "methods": [
+   "Construct gate denominator diverges from evalgate: reference-agent errors count, and an error rate above 5% resolves to COMPROMISED rather than silently shrinking n.",
+   "A published PASS additionally requires the Wilson 95% lower bound to clear the threshold, or an n the design was sized for. Otherwise the verdict downgrades to EXTEND.",
+   "Extension protocol, pre-registered before the first model call: 6 new tasks per extension, at most 2. When the construct gate returns EXTEND, one batch is generated by the same generator at a derived seed, screened by the same free gates and measured by the same three null baselines, and run at the same reps. Successes and trials are then POOLED across the original suite and every consumed extension, and the three-outcome rule is re-applied to the pooled counts.",
+   "The free gates screen a bought batch with the SAME consequences they carry on the registered suite. An answer key that reaches the answering model (through a batch task prompt, its bound parameters, the server instructions or a tool description) refuses the run, and so does a batch task that violates the structural property the run depends on, which is an unbound placeholder left in the rendered prompt or an empty prompt. The refusal names the batch and the offending task. A leak or a property violation inside a batch bought to resolve a gate is evidence about the generator, not a task to quietly discard, and the batch is voided whole rather than mined for its clean tasks.",
+   "Three findings inside a batch are DROPS and not refusals, each counted per batch in the run record: a task naming a tool the server does not expose (ordinary admission), a candidate the generation-time null screen deleted, and a task that restates one already in the pool. The duplicate rule is content level, not id level: two tasks are the same task when their rendered prompts agree after whitespace collapsing and case folding and their expected tools and their success check agree. Without it the deterministic e-index id prefix would hide the collision and a restated task would inflate the pooled n with a trial that is perfectly correlated with one already counted.",
+   "EXTEND is not a loophole. The extension size and the maximum number of extensions are fixed in the pre-registration alongside n; after the last extension an unresolved gate resolves to FAIL, not to another extension and not to a missing row. There is no optional stopping: a run completes its registered size or is void, and a task suite regenerated outside this protocol is a NEW run with a new suite hash, never a retry.",
+   "When a run extends and the pooled gate passes, the drive and the score cover the FULL pooled suite. Extension tasks are recorded under their own correlation ids exactly like original tasks, and the published suite hash covers the pooled set with the per-batch lineage in suite-meta.json.",
+   "Judge spend (task synthesis and its retries, every extension batch, the generation-time null screen probes, and every rubric check) reaches neither tape, so the trace statistics cannot price it. It is measured from the API usage blocks and published as run.judgeUsage. A total for a run is the trace cost plus that figure.",
+   "Destructive-without-confirmation, v0 rule: a tool is destructive unless it declares readOnlyHint true or destructiveHint false, and every executed call to such a tool counts. The only thing that clears one is recorded evidence that the server asked about that same tool before that same call ran. Confirmation is never inherited from another tool or from elsewhere in the task.",
+   "Construct gate: the reference agent is told the answer, so a text check alone would pass against a dead server. A reference pass counts only when it also landed a successful call on a tool the task expects.",
+   "Multi-round tool input (MRTR) is recorded and then declined in v0. A server that asks for input gets an mrtr-abandoned datum, never a fabricated answer.",
+   "Each task runs under an advisory task budget, so a trapping server yields budget exhausted as a clean unrecoverable-path datum rather than an unbounded bill.",
+   "Prior art: MCPEval for generated task suites, evalgate for the gate math, mcp-tape for the recording format. Our delta is refusal, signed replays, and causal rewrite diffs.",
+   "Task suite generated by fitness-report-generator/2 (judge claude-opus-5). v1 and v2 suites are different measurements and are never merged in one leaderboard column.",
+   "Task candidates are screened at generation time with a single no-tools probe on the runner model. Candidates the cold model answers correctly are deleted before any gate runs, with the reason recorded. The run-time null baseline therefore measures the noise floor of a null-screened suite, not of an arbitrary suite, and is biased downward by construction.",
+   "The screen simulates one of the three null models the gate uses, weakly and with a single sample. It never removes a task from the gate denominator and never changes a gate threshold; the null_baseline rule, its 0.5 ratio and its 95th percentile are unchanged from v1.",
+   "The share of generated candidates the screen deleted is published per server.",
+   "Null screen on this server: 0 of 1 screened candidates were answerable with no server at all.",
+   "Screen spend is not on either tape. The screen made 1 runner-model calls (152 input and 118 output tokens) before the suite existed, so trace_stats cannot see them. They are measured in run.judgeUsage, under the null_screen phase, and the per-candidate counts stay in the synthesis ledger.",
+   "Judge spend for this run is measured, not estimated: 3 judge-tier call(s), 7221 input and 18331 output tokens, $0.4922. None of it reaches a tape, so a total for the run is the trace_stats cost PLUS run.judgeUsage.estCostUsd."
+  ]
+ },
+ {
+  "schema": "fitness-report/1",
+  "server": {
+   "url": "https://knowledge-mcp.global.api.aws/mcp",
+   "slug": "knowledge-mcp-global-api-aws",
+   "era": "legacy",
+   "negotiatedVersion": "2025-03-26",
+   "serverInfo": {
+    "name": "AWSKnowledgeMCP",
+    "version": "1.0.0"
+   },
+   "instructions": null,
+   "capabilities": {
+    "tools": {
+     "listChanged": false
+    }
+   },
+   "transportShape": "json",
+   "sessionful": true,
+   "credentialContext": "anonymous"
+  },
+  "run": {
    "id": "knowledge-mcp-global-api-aws-2026-08-19T21-18-31-987Z",
    "startedAt": "2026-08-19T21:18:31.987Z",
    "harnessVersion": "0.1.0",

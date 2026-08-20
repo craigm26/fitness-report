@@ -17,7 +17,8 @@
  *   D  runs of one server carry their own identity and read as separate attempts.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -523,6 +524,138 @@ describe('run identity across reruns', () => {
     expect(INDEX_SOURCE).toContain('Inside a run there is no optional stopping');
     // The unqualified claim covered something the harness cannot enforce.
     expect(INDEX_SOURCE).not.toContain('There is no optional stopping here');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The published evidence, read off disk.
+//
+// Two failures reached the live site through the same seam. A rerun into an
+// out directory that already held a run APPENDED its tape, so five of the 33
+// published trace directories carried more than one session and served an
+// earlier run's frames under a later run's replay link. And the board was
+// REBUILT from whichever run directories survived, so when a weaker AWS
+// Knowledge rerun took the earlier run's directory, the earlier attempt (a
+// construct-gate refusal carrying 54 recorded http_error events) lost its row
+// and its published tapes were left an orphan. The site's own copy promises
+// that no attempt is hidden; these read the files and hold it to that.
+// ---------------------------------------------------------------------------
+
+describe('the published evidence on disk', () => {
+  const TRACE_ROOT = here('../site/traces');
+  const traceDirs = readdirSync(TRACE_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+
+  const tapeLines = (runId, plane) =>
+    readFileSync(join(TRACE_ROOT, runId, `${plane}.jsonl`), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line));
+
+  /** The run id ends in the run's start time, with `:` and `.` replaced. */
+  const startedAtOf = (runId) => {
+    const m = /(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(runId);
+    return m ? `${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z` : null;
+  };
+
+  it('has both planes on disk for every row the board lists', () => {
+    expect(RUNS.length).toBeGreaterThan(0);
+    const missing = [];
+    for (const run of RUNS) {
+      for (const plane of ['mcp', 'agent']) {
+        if (!existsSync(join(TRACE_ROOT, run.run.id, `${plane}.jsonl`))) {
+          missing.push(`${run.run.id}/${plane}.jsonl`);
+        }
+      }
+    }
+    // A row whose replay link opens nothing is worse than no row: every finding
+    // has to link to the recorded session that justifies it.
+    expect(missing).toEqual([]);
+  });
+
+  it('publishes no orphan recording that no row points at', () => {
+    const listed = new Set(RUNS.map((run) => run.run.id));
+    const orphans = traceDirs.filter((dir) => !listed.has(dir));
+    expect(orphans).toEqual([]);
+  });
+
+  it('holds exactly one session in every published tape, and it is that run’s own', () => {
+    const offenders = [];
+    for (const runId of traceDirs) {
+      const startedAt = startedAtOf(runId);
+      expect(startedAt, `${runId} does not end in a run timestamp`).not.toBeNull();
+      for (const plane of ['mcp', 'agent']) {
+        const metas = tapeLines(runId, plane).filter((line) => line.type === 'meta');
+        if (metas.length !== 1) {
+          offenders.push(`${runId}/${plane}.jsonl holds ${metas.length} meta lines`);
+        } else if (metas[0].startedAt !== startedAt) {
+          offenders.push(`${runId}/${plane}.jsonl was recorded by the run that started at ${metas[0].startedAt}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('agrees line for line with each row’s own trace_stats block', () => {
+    // The strongest available check that the repaired tapes were trimmed to the
+    // right session: the record each run published counts its OWN lines, and it
+    // was computed in memory while the run was still going.
+    const checked = [];
+    for (const run of RUNS) {
+      const planes = run.trace_stats && run.trace_stats.planes;
+      if (!planes) continue;
+      for (const plane of ['mcp', 'agent']) {
+        const claimed = planes[plane] && planes[plane].session && planes[plane].session.records;
+        if (!claimed) continue;
+        const lines = tapeLines(run.run.id, plane);
+        expect(lines.length, `${run.run.id}/${plane}.jsonl`).toBe(claimed.total);
+        expect(lines.filter((l) => l.type === 'meta').length).toBe(claimed.meta);
+        expect(lines.filter((l) => l.type === 'end').length).toBe(claimed.end);
+        expect(lines.filter((l) => l.type === 'turn').length).toBe(claimed.turn);
+        checked.push(`${run.run.id}/${plane}`);
+      }
+    }
+    expect(checked.length).toBeGreaterThan(20);
+  });
+
+  it('keeps both AWS Knowledge attempts from the v2 generator, the stronger one included', () => {
+    const aws = RUNS.filter((run) => slugOf(run) === 'knowledge-mcp-global-api-aws');
+    const byId = new Map(aws.map((run) => [run.run.id, run]));
+
+    // The construct-gate refusal: 12 of 12 tasks driven, every tools/call
+    // rejected by the gateway below JSON-RPC. It was dropped from the board
+    // when a rerun took its run directory.
+    const strong = byId.get('knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z');
+    expect(strong, 'the 16:45 construct-gate attempt is missing from the board').toBeDefined();
+    expect(strong.gates.refusedAt).toBe('construct');
+    expect(strong.run.generatorVersion).toBe('fitness-report-generator/2');
+
+    // The rerun that replaced it refused earlier, at the structural gate, on a
+    // suite the generator never produced. Both are published, neither is a
+    // best of, and the reader can tell them apart by suite hash and start time.
+    const weak = byId.get('knowledge-mcp-global-api-aws-2026-08-20T16-59-20-891Z');
+    expect(weak).toBeDefined();
+    expect(weak.gates.refusedAt).toBe('structural');
+    expect(weak.run.suiteHash).not.toBe(strong.run.suiteHash);
+
+    const cohorts = serverCohorts(RUNS);
+    expect(cohortPlaceOf(cohorts, strong).total).toBe(aws.length);
+    expect(aws.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('carries the http_error evidence the stronger AWS attempt was published for', () => {
+    const runId = 'knowledge-mcp-global-api-aws-2026-08-20T16-45-18-024Z';
+    const errors = tapeLines(runId, 'mcp').filter((line) => line.kind === 'fitness.http_error');
+    expect(errors.length).toBe(54);
+    // Every one names the tool and the status, which is what makes the row
+    // arguable from the record rather than from prose.
+    for (const event of errors) {
+      expect(typeof event.raw.toolName).toBe('string');
+      expect(event.raw.status).toBe(400);
+      expect(typeof event.raw.bodySnippet).toBe('string');
+    }
   });
 });
 
@@ -1764,5 +1897,165 @@ describe('methods page', () => {
     const ids = new Set((METHODS_SOURCE.match(/id="([^"]+)"/g) || []).map((m) => m.slice(4, -1)));
     const hrefs = (METHODS_SOURCE.match(/href="#([^"]+)"/g) || []).map((m) => m.slice(7, -1));
     for (const href of hrefs) expect(ids.has(href)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The failure record against the artifacts it describes.
+//
+// The entries went stale in a way nothing caught: four of them were repaired in
+// the artifacts served from this same origin while the page still said they
+// were open, and the figures they told a reader to go and reproduce no longer
+// reproduced. The page reads runs.json and the tapes it cites, so the tests can
+// too. Every assertion below recomputes the page's own claim from the file the
+// page points the reader at, so a repair that moves an artifact moves a test
+// with it.
+// ---------------------------------------------------------------------------
+
+describe('the failure record against the artifacts', () => {
+  const TRACE_ROOT = here('../site/traces');
+
+  const articleOf = (id) => {
+    const open = METHODS_SOURCE.indexOf(`<article class="fail" id="${id}">`);
+    expect(open, `entry ${id} is not on the page`).toBeGreaterThan(-1);
+    const close = METHODS_SOURCE.indexOf('</article>', open);
+    return METHODS_SOURCE.slice(open, close);
+  };
+
+  const articleIds = (METHODS_SOURCE.match(/<article class="fail" id="(f\d+)"/g) || []).map((m) =>
+    m.slice(m.indexOf('id="') + 4, -1)
+  );
+
+  const statusOf = (id) => {
+    const body = articleOf(id);
+    const open = body.includes('tag-fault">OPEN<');
+    const closed = body.includes('tag-ok">CLOSED<');
+    // A tag is a status, not a mood: exactly one of them, or the entry is
+    // making two claims at once.
+    expect(open && closed, `entry ${id} carries both an OPEN and a CLOSED tag`).toBe(false);
+    if (open) return 'OPEN';
+    if (closed) return 'CLOSED';
+    return 'OTHER';
+  };
+
+  const lines = (runId, plane) =>
+    readFileSync(join(TRACE_ROOT, runId, `${plane}.jsonl`), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line));
+
+  it('states the open count the entries themselves carry', () => {
+    const open = articleIds.filter((id) => statusOf(id) === 'OPEN');
+    expect(open.length).toBeGreaterThan(0);
+
+    // The masthead and the board's link to this page both state it, and the
+    // number a reader arrives at by counting the tags has to be the same one.
+    const stated = METHODS_SOURCE.match(/(\d+)\s+are open today/);
+    expect(stated, 'the masthead no longer states how many entries are open').not.toBeNull();
+    expect(Number(stated[1])).toBe(open.length);
+
+    const onBoard = INDEX_SOURCE.match(/(\d+)\s+of them still open/);
+    expect(onBoard, 'the board no longer states how many entries are open').not.toBeNull();
+    expect(Number(onBoard[1])).toBe(open.length);
+  });
+
+  it('says how each entry closed by the repair pass was closed', () => {
+    // Four entries were open when the artifacts moved under them. A CLOSED tag
+    // on its own is a claim; the passage under it is what a reader argues with.
+    for (const id of ['f14', 'f15', 'f16', 'f25']) {
+      expect(statusOf(id), `entry ${id} is still tagged open`).toBe('CLOSED');
+      expect(articleOf(id), `entry ${id} never says how it was closed`).toContain('How it was closed');
+    }
+  });
+
+  it('never closes an entry without citing something a reader can check', () => {
+    const closed = articleIds.filter((id) => statusOf(id) === 'CLOSED');
+    expect(closed.length).toBeGreaterThan(0);
+    for (const id of closed) {
+      const body = articleOf(id);
+      expect(body, `entry ${id} never says what changed`).toMatch(
+        /How it was closed|How it was fixed|How it was caught|the fix/
+      );
+      expect(body, `entry ${id} closes without citing anything`).toMatch(
+        /ev-kind">(test|commit|source|file|artifact|package|reproduce)</
+      );
+    }
+  });
+
+  it('keeps a partly fixed entry open and says what is still missing', () => {
+    // A defect whose fix is written but never exercised on a published artifact
+    // is not closed. Both of these carry working code and no run behind it.
+    for (const id of ['f03', 'f17']) {
+      expect(statusOf(id)).toBe('OPEN');
+      const body = articleOf(id);
+      expect(body, `entry ${id} does not say what was fixed`).toContain('What was fixed');
+      expect(body, `entry ${id} does not say why it is still open`).toContain('Why it is still open');
+    }
+  });
+
+  it('reproduces the drop arithmetic entry 03 tells a reader to run', () => {
+    // The exact sum the entry publishes, computed the way it says to compute
+    // it. It went wrong once already: restoring a dropped row (entry 16) moved
+    // this total, and nothing on the page moved with it.
+    const generated = RUNS.filter(
+      (run) => run.run && run.run.generatorVersion === 'fitness-report-generator/2'
+    );
+    let drops = 0;
+    let candidates = 0;
+    for (const run of generated) {
+      const structural = (run.gates.records || []).find((record) => record.gate === 'structural');
+      const synthesis = structural && structural.detail && structural.detail.synthesis;
+      drops += (synthesis && synthesis.dropsByRule && synthesis.dropsByRule['invalid-check']) || 0;
+      candidates += (synthesis && synthesis.yield && synthesis.yield.candidates) || 0;
+    }
+
+    const body = articleOf('f03');
+    expect(body).toContain(`: ${drops}, against ${candidates} in the matching`);
+    expect(body, 'the entry no longer states how many rows it summed').toContain(
+      `${generated.length} rows`
+    );
+  });
+
+  it('matches the tapes on disk in the table entry 14 publishes', () => {
+    const body = articleOf('f14');
+    const row = /<tr><td><a href="traces\/([^/]+)\/mcp\.jsonl">[^<]*<\/a><\/td>((?:<td class="m-num">\d+<\/td>){5})<\/tr>/g;
+    const seen = [];
+    for (const match of body.matchAll(row)) {
+      const runId = match[1];
+      const cells = [...match[2].matchAll(/<td class="m-num">(\d+)<\/td>/g)].map((c) => Number(c[1]));
+      const [, , sessionsNow, linesNow, claimed] = cells;
+      const tape = lines(runId, 'mcp');
+      expect(tape.filter((line) => line.type === 'meta').length, `${runId} sessions`).toBe(sessionsNow);
+      expect(tape.length, `${runId} lines`).toBe(linesNow);
+
+      // The last column is the count the run's own report claimed while the run
+      // was still going, read out of the published record rather than retyped:
+      // it is what makes the repaired file checkable rather than asserted.
+      const run = RUNS.find((candidate) => candidate.run.id === runId);
+      expect(run, `${runId} has no row`).toBeDefined();
+      expect(run.trace_stats.planes.mcp.session.records.total, `${runId} claimed lines`).toBe(claimed);
+      seen.push(runId);
+    }
+    expect(seen.length).toBe(5);
+  });
+
+  it('states the tape oracle pin that package.json actually carries', () => {
+    const pkg = JSON.parse(readFileSync(here('../package.json'), 'utf8'));
+    const pin = (pkg.devDependencies && pkg.devDependencies['mcp-tape']) || (pkg.dependencies && pkg.dependencies['mcp-tape']);
+    expect(typeof pin).toBe('string');
+    expect(articleOf('f15')).toContain(`"mcp-tape": "${pin}"`);
+  });
+
+  it('counts the recordings and the rows entry 16 says now agree', () => {
+    const traceDirs = readdirSync(TRACE_ROOT, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    expect(articleOf('f16')).toContain(`${traceDirs.length} trace directories, ${RUNS.length} rows`);
+  });
+
+  it('names no ledger this origin does not serve', () => {
+    // Entry 17 stays open on exactly this: the per candidate ledger is still
+    // not published, so the claim has to keep being true of the site.
+    const published = readdirSync(here('../site'), { recursive: true, encoding: 'utf8' });
+    expect(published.some((name) => name.endsWith('suite-meta.json'))).toBe(false);
+    expect(articleOf('f17')).toContain('suite-meta.json');
   });
 });

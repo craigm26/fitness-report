@@ -38,6 +38,26 @@
  * Nothing here touches src/gates. Every change makes TASKS HARDER or accounting
  * TRUER; no threshold, ratio, floor or alpha moves.
  *
+ * GENERATOR v3 (2026-08-20). v2's sixteen published runs dropped 198 of 386
+ * candidates as `invalid-check` with the detail "regex does not compile", 196 of
+ * them on the `tool_result_matches` check the prompt makes mandatory. The prompt
+ * never named the regex dialect and the ledger never recorded the pattern, so
+ * seven servers are published as GATE_FAILED or INSUFFICIENT_SURFACE for a
+ * defect in this file. v3 changes the GENERATOR and never a gate:
+ *   - the prompt states the dialect (ECMAScript, compiled with the `i` flag)
+ *     in the same section that requires the check kind;
+ *   - `repairPattern` translates the foreign-dialect constructs that have an
+ *     exact ECMAScript form and drops the ones that do not, naming them;
+ *   - `compileCheckPattern` is the one door every pattern-bearing check goes
+ *     through, so a pattern is compiled by a real RegExp where it is WRITTEN;
+ *   - the drop ledger carries the check itself (`checkPattern`, `checkValue`,
+ *     `checkTool`), so a drop caused by the judge's own output can be argued
+ *     with from the published record instead of taken on trust.
+ * Repair can only ever move a candidate from dropped to validated, so admission
+ * rates under v3 are not comparable with the v2 rows on the board. That is what
+ * the version bump is for: `generatorVersion` is the field the leaderboard
+ * refuses to rank across, and no published record is touched.
+ *
  * What this module enforces locally, before any gate runs:
  *   - answer-leak: the rendered prompt may never contain the answer key. Offenders
  *     get exactly ONE regeneration attempt and are then DROPPED (DESIGN 11, FREE
@@ -92,17 +112,17 @@ export const DEFAULT_TARGET_TASK_COUNT = 12;
  * It is part of the generator config, so a synthesizer change is a NEW suite
  * (new suiteHash) and therefore a new run, never a retry of an old one.
  */
-export const SYNTHESIZER_VERSION = 2;
+export const SYNTHESIZER_VERSION = 3;
 
 /**
- * The generator identity that goes into the suite hash preimage. A v1 artifact
- * and a v2 artifact can never collide, and the leaderboard must never put a v1
- * row and a v2 row in the same column.
+ * The generator identity that goes into the suite hash preimage. Artifacts from
+ * two generator versions can never collide, and the leaderboard must never put
+ * rows from two of them in the same column.
  */
 export const GENERATOR_VERSION = `fitness-report-generator/${String(SYNTHESIZER_VERSION)}`;
 
 /** Bumped when the admission check policy changes. Hashed. */
-export const CHECK_POLICY_VERSION = 2;
+export const CHECK_POLICY_VERSION = 3;
 
 /** Bumped when the answer-leak normalization changes. Hashed. */
 export const LEAK_CHECK_MODE = 'squashed+word-boundary/2';
@@ -380,6 +400,29 @@ export interface DroppedTask {
     expectedTools?: readonly string[];
     unknownTools?: readonly string[];
     checkKind?: string;
+    /**
+     * The check ITSELF, as the generator wrote it.
+     *
+     * WHY IT IS HERE. The ledger recorded the rule, the offending phrase, a
+     * prompt excerpt and a cold answer excerpt, and nothing about the predicate
+     * that did the rejecting. A drop whose whole cause is the judge's own
+     * output ("regex does not compile", "matches a shape rather than an
+     * answer", "the prompt already contains the check literal") could not be
+     * argued with from the published record: 198 candidates were dropped for a
+     * pattern nobody can read. `checkPattern` is the pattern as written,
+     * `checkPatternRepaired` the ECMAScript form when the two differ,
+     * `checkValue` the literal of a `substring` check, `checkTool` the tool a
+     * `tool_called` or `tool_result_matches` check named.
+     *
+     * REDACTION. These ride inside the same `evidence` object as `phrase` and
+     * go through `redactReport` on the published copy exactly like every other
+     * field, and none of them is spelled with a key the descend-anywhere rules
+     * erase (`token`, `secret`, `api_key`, ...).
+     */
+    checkPattern?: string;
+    checkPatternRepaired?: string;
+    checkValue?: string;
+    checkTool?: string;
     phrase?: string;
     promptExcerpt?: string;
     /** What the cold, tool-less model said, when the null screen did the drop. */
@@ -389,7 +432,12 @@ export interface DroppedTask {
 
 export interface TaskRepair {
   id: string;
-  kind: 'handle-chain' | 'answer-leak-rewrite' | 'expected-tools-dedupe';
+  kind:
+    | 'handle-chain'
+    | 'answer-leak-rewrite'
+    | 'expected-tools-dedupe'
+    /** A check pattern translated out of a foreign regex dialect into ECMAScript. */
+    | 'check-pattern-dialect';
   detail: string;
   /** Only on rewrites: how the replacement was paired with its offender. */
   matchedBy?: 'id' | 'position';
@@ -524,7 +572,7 @@ function sha256Hex(text: string): string {
  * suite the model would produce, so a change here must change the hash.
  */
 export interface GeneratorConfig {
-  /** 'fitness-report-generator/2'. Every v2 run is a new attempt, never a retry. */
+  /** 'fitness-report-generator/<n>'. A version bump is a new attempt, never a retry. */
   generatorVersion: string;
   synthesizerVersion: number;
   generatorModel: string;
@@ -1040,6 +1088,282 @@ export function longestLiteralRun(pattern: string): number {
 }
 
 // ---------------------------------------------------------------------------
+// Check pattern dialect (the invalid-check collapse)
+// ---------------------------------------------------------------------------
+
+/**
+ * MEASURED: across the sixteen runs recorded as `fitness-report-generator/2`,
+ * 198 of 386 generated candidates were dropped as `invalid-check` with the
+ * detail "regex does not compile". 196 of the 198 were `tool_result_matches`,
+ * which the system prompt makes REQUIRED whenever the answer lives in a tool
+ * result, and which the prompt then described without ever naming the regex
+ * dialect the validator would compile it in. Three runs lost 24 of 24
+ * candidates, three more kept 1 of 24, and all of them are published as
+ * GATE_FAILED or INSUFFICIENT_SURFACE, which reads on the board as a statement
+ * about the server.
+ *
+ * The published ledger recorded the rule and the detail but NOT the pattern, so
+ * the exact construct cannot be recovered from our own artifacts. That gap is
+ * its own finding and is closed below (`checkPattern` on the drop evidence), so
+ * the NEXT run answers the question this one cannot.
+ *
+ * Two things are fixed here regardless of which construct it was:
+ *   1. the generator is told the dialect, in the same section that requires the
+ *      check kind (`SYSTEM_PROMPT`);
+ *   2. a pattern written in another regex dialect is REPAIRED into ECMAScript
+ *      where the translation provably matches the same text, and dropped only
+ *      when it does not.
+ *
+ * THE SAFETY PROPERTY, and it is the reason repair cannot quietly change a
+ * measurement: every construct translated here is a byte sequence JavaScript's
+ * RegExp parser REJECTS. A pattern that already compiles is therefore returned
+ * byte-identical, and no admitted check can change meaning because this code
+ * exists. `repairs the dialect only where JavaScript refuses to parse at all`
+ * is pinned by test, over the real published corpus.
+ */
+
+/**
+ * The flags the harness compiles every check pattern with.
+ *
+ * `src/run/agent.ts` `safeRegex()` compiles both `regex` and
+ * `tool_result_matches` patterns with `i` and nothing else. Generation-time
+ * validation uses the same string so a pattern can never compile in one place
+ * and fail in the other.
+ */
+export const CHECK_PATTERN_FLAGS = 'i';
+
+/** Named in the generator prompt so the model is not guessing. */
+export const CHECK_PATTERN_DIALECT =
+  'ECMAScript (JavaScript RegExp source), compiled with the i flag already applied';
+
+/**
+ * Inline flag letters that have an exact ECMAScript translation.
+ *   i: the runtime compiles with `i` unconditionally, so an `(?i)` is already
+ *      in force over the whole pattern and removing it cannot change a match.
+ *   s: dot-all, translated by rewriting every unescaped `.` outside a character
+ *      class to `[\s\S]`, which is what dot-all means.
+ *   m: multiline `^`, translated to `(?:^|(?<=\n))`. PCRE and Python both make
+ *      `^` match at the start and after a `\n` under this flag, so the rewrite
+ *      is exact. A multiline `$` is NOT translated: the three dialects disagree
+ *      about whether it matches before a trailing newline, so no rewrite can be
+ *      shown to match the same text and the candidate is dropped instead.
+ */
+const REPAIRABLE_INLINE_FLAGS = new Set(['i', 's', 'm']);
+
+/** The outcome of translating one pattern into the dialect the harness compiles. */
+export interface PatternRepair {
+  /** The ECMAScript pattern, or null when no exact translation exists. */
+  pattern: string | null;
+  /** Constructs translated, de-duplicated, in the order they were met. */
+  repaired: readonly string[];
+  /** Why no exact translation exists. Present exactly when `pattern` is null. */
+  blockedBy?: string;
+}
+
+/**
+ * Constructs from other regex dialects, named so a drop can be argued with.
+ * Consulted ONLY after the ECMAScript parser has already refused the pattern,
+ * so a probe that over-matches can mislabel a failure but can never cause one.
+ */
+const FOREIGN_CONSTRUCTS: readonly { name: string; probe: RegExp }[] = [
+  { name: 'scoped inline flag group such as (?i-s:...)', probe: /\(\?[A-Za-z]*-[A-Za-z]*[:)]/ },
+  { name: 'inline flag group such as (?i) or (?x)', probe: /\(\?[A-Za-z]+\)/ },
+  { name: 'atomic group (?>...)', probe: /\(\?>/ },
+  { name: 'conditional group (?(...)...)', probe: /\(\?\(/ },
+  { name: 'subroutine or recursion call such as (?R) or (?1)', probe: /\(\?(?:R\)|[0-9]+\)|&[A-Za-z_])/ },
+  { name: 'Python subroutine call (?P>name)', probe: /\(\?P>/ },
+  { name: 'possessive quantifier such as .*+ or a++', probe: /(?:[*+?]|\{[0-9]+(?:,[0-9]*)?\})\+/ },
+];
+
+function describeUncompilable(pattern: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const found = FOREIGN_CONSTRUCTS.find((c) => c.probe.test(pattern));
+  return found === undefined ? message : `${found.name} is not ECMAScript syntax (${message})`;
+}
+
+/**
+ * Translate a check pattern into the dialect the harness compiles, or explain
+ * why it cannot be translated.
+ *
+ * Repairs (each one a sequence ECMAScript cannot parse, so each one is a
+ * no-op on a pattern that already compiles):
+ *   `(?i)` anywhere        -> removed; the runtime already applies `i`
+ *   leading `(?s)`/`(?m)`  -> removed, with `.` or `^` rewritten to match
+ *   `(?P<name>` / `(?'name'` -> `(?<name>`
+ *   `(?P=name)`            -> `\k<name>`
+ *   `(?#comment)`          -> removed; a comment matches nothing
+ *
+ * Everything else is copied verbatim and handed to a real RegExp constructor.
+ * An atomic group, a possessive quantifier or a verbose-mode `(?x)` pattern has
+ * no ECMAScript form that matches the same text, so it is not guessed at: the
+ * candidate is dropped and the construct is named in the ledger.
+ */
+export function repairPattern(pattern: string): PatternRepair {
+  const repaired: string[] = [];
+  const note = (what: string): void => {
+    if (!repaired.includes(what)) repaired.push(what);
+  };
+
+  let body = pattern;
+  let dotAll = false;
+  let multiline = false;
+
+  // A LEADING run of inline flag groups. Only a leading run is repaired: every
+  // other dialect scopes a mid-pattern flag group to the rest of the pattern,
+  // and honouring that scope is a rewrite we cannot prove. `(?i)` is the one
+  // exception and it is handled in the scan below, because the compiled regex
+  // is case insensitive whether the group is there or not.
+  for (;;) {
+    const head = /^\(\?([A-Za-z]+)\)/.exec(body);
+    if (head === null) break;
+    const letters = [...head[1]!];
+    if (!letters.every((f) => REPAIRABLE_INLINE_FLAGS.has(f))) break;
+    for (const f of letters) {
+      if (f === 's') dotAll = true;
+      if (f === 'm') multiline = true;
+    }
+    note(`inline flag group (?${head[1]!})`);
+    body = body.slice(head[0].length);
+  }
+
+  const out: string[] = [];
+  let inClass = false;
+  let blocked: string | undefined;
+  let i = 0;
+  while (i < body.length) {
+    const ch = body[i]!;
+    if (ch === '\\') {
+      // Copy the escape pair verbatim, including a lone trailing backslash,
+      // which the constructor will reject on its own terms.
+      out.push(body.slice(i, i + 2));
+      i += 2;
+      continue;
+    }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    if (ch === '.' && dotAll) {
+      out.push('[\\s\\S]');
+      note('dot-all `.` rewritten as [\\s\\S]');
+      i += 1;
+      continue;
+    }
+    if (ch === '^' && multiline) {
+      out.push('(?:^|(?<=\\n))');
+      note('multiline `^` rewritten as (?:^|(?<=\\n))');
+      i += 1;
+      continue;
+    }
+    if (ch === '$' && multiline) {
+      blocked =
+        'multiline `$` has no ECMAScript translation that provably matches the same text: PCRE, ' +
+        'Python and JavaScript disagree about whether it matches before a trailing newline';
+      break;
+    }
+    if (ch === '(' && body.startsWith('(?', i)) {
+      if (body.startsWith('(?P<', i)) {
+        out.push('(?<');
+        note('Python named group (?P<name>...)');
+        i += 4;
+        continue;
+      }
+      if (body.startsWith('(?P=', i)) {
+        const end = body.indexOf(')', i + 4);
+        if (end < 0) {
+          blocked = 'unterminated (?P=name) backreference';
+          break;
+        }
+        out.push(`\\k<${body.slice(i + 4, end)}>`);
+        note('Python named backreference (?P=name)');
+        i = end + 1;
+        continue;
+      }
+      if (body.startsWith("(?'", i)) {
+        const end = body.indexOf("'", i + 3);
+        if (end < 0) {
+          blocked = "unterminated (?'name') group";
+          break;
+        }
+        out.push(`(?<${body.slice(i + 3, end)}>`);
+        note("Perl named group (?'name'...)");
+        i = end + 1;
+        continue;
+      }
+      if (body.startsWith('(?#', i)) {
+        const end = body.indexOf(')', i + 3);
+        if (end < 0) {
+          blocked = 'unterminated (?#comment)';
+          break;
+        }
+        note('inline comment (?#...)');
+        i = end + 1;
+        continue;
+      }
+      const flags = /^\(\?([A-Za-z]+)\)/.exec(body.slice(i));
+      if (flags !== null && flags[1] === 'i') {
+        note('inline flag group (?i)');
+        i += flags[0].length;
+        continue;
+      }
+      out.push(ch);
+      i += 1;
+      continue;
+    }
+    out.push(ch);
+    i += 1;
+  }
+
+  if (blocked !== undefined) return { pattern: null, repaired, blockedBy: blocked };
+
+  const candidate = out.join('');
+  try {
+    // A REAL RegExp constructor, at generation time, on the exact string the
+    // runtime will compile. A pattern that cannot compile is now caught where
+    // it is written, not where it is used.
+    new RegExp(candidate, CHECK_PATTERN_FLAGS);
+  } catch (error) {
+    return { pattern: null, repaired, blockedBy: describeUncompilable(candidate, error) };
+  }
+  return { pattern: candidate, repaired };
+}
+
+/** A pattern that compiled, with the repairs that got it there. */
+export type CompiledCheckPattern =
+  | { ok: true; regex: RegExp; pattern: string; repaired: readonly string[] }
+  | { ok: false; detail: string; repaired: readonly string[] };
+
+/**
+ * Repair, then compile with a real RegExp constructor. The single entry point
+ * for every pattern-bearing check, so no path can admit a pattern that has not
+ * been compiled.
+ */
+export function compileCheckPattern(pattern: string): CompiledCheckPattern {
+  const repair = repairPattern(pattern);
+  if (repair.pattern === null) {
+    return {
+      ok: false,
+      detail: repair.blockedBy ?? 'pattern is not a valid ECMAScript regular expression',
+      repaired: repair.repaired,
+    };
+  }
+  return {
+    ok: true,
+    regex: new RegExp(repair.pattern, CHECK_PATTERN_FLAGS),
+    pattern: repair.pattern,
+    repaired: repair.repaired,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Model I/O
 // ---------------------------------------------------------------------------
 
@@ -1207,6 +1531,15 @@ export const SYSTEM_PROMPT = [
   '4. judge - last resort, at most 1 per suite.',
   "A check that a model could satisfy while explicitly saying 'I cannot verify this' is a broken",
   'check. Prefer checks a hedge cannot satisfy.',
+  '',
+  'REGEX DIALECT. Every pattern, in a regex check and in a tool_result_matches check alike, is',
+  "compiled by JavaScript's RegExp constructor with the i flag already applied. Matching is already",
+  'case insensitive: never ask for it. Write ECMAScript syntax and nothing else. Do NOT use inline',
+  'flag groups such as (?i), (?s), (?m) or (?x); atomic groups (?>...); possessive quantifiers such',
+  'as .*+ or a++; inline comments (?#...); Python named groups (?P<name>...); conditionals; or',
+  'recursion. Write [\\s\\S] where another dialect would write a dot under the s flag, and \\n where',
+  'it would rely on multiline anchors. A pattern that does not compile is dropped, and that drop is',
+  'a defect in this generator, never a finding about the server.',
   '',
   'ANSWER KEYS. The answerKey is the fact the agent must discover by CALLING tools. It must never',
   'appear, in whole or in part, in the rendered prompt, in the tool descriptions, or in the server',
@@ -1471,10 +1804,30 @@ async function askJudge(
 // Validation
 // ---------------------------------------------------------------------------
 
+/** One pattern rewritten out of a foreign regex dialect into ECMAScript. */
+interface CheckPatternRepair {
+  /** The pattern exactly as the generator wrote it. */
+  from: string;
+  /** The pattern the suite will carry and the runner will compile. */
+  to: string;
+  /** The constructs translated, named for the ledger. */
+  constructs: readonly string[];
+}
+
 /** A check either survives the policy or names the rule that rejected it. */
 type CheckVerdict =
-  | { ok: true; check: TaskCheck }
-  | { ok: false; reason: DropReason; detail: string };
+  | { ok: true; check: TaskCheck; patternRepair?: CheckPatternRepair }
+  | {
+      ok: false;
+      reason: DropReason;
+      detail: string;
+      /**
+       * Set when the pattern compiled only after a dialect repair and a LATER
+       * rule then rejected it. The ledger carries both forms, because the rule
+       * judged the repaired one and the generator wrote the other.
+       */
+      repairedPattern?: string;
+    };
 
 interface CheckPolicyContext {
   surface: ReadonlySet<string>;
@@ -1531,30 +1884,44 @@ function validateCheck(raw: unknown, ctx: CheckPolicyContext): CheckVerdict {
       if (c.where !== 'final_text' || typeof c.pattern !== 'string' || c.pattern.length === 0) {
         return { ok: false, reason: 'invalid-check', detail: 'regex check has no final_text pattern' };
       }
-      let re: RegExp;
-      try {
-        re = new RegExp(c.pattern, 'i');
-      } catch {
-        return { ok: false, reason: 'invalid-check', detail: 'regex does not compile' };
+      const compiled = compileCheckPattern(c.pattern);
+      if (!compiled.ok) {
+        return {
+          ok: false,
+          reason: 'invalid-check',
+          detail: `regex does not compile: ${compiled.detail}`,
+        };
       }
-      const run = longestLiteralRun(c.pattern);
+      // Everything downstream measures the REPAIRED pattern, because that is
+      // the string the runner will compile. Judging the shape of the original
+      // and then evaluating the replacement would be two different checks.
+      const pattern = compiled.pattern;
+      const run = longestLiteralRun(pattern);
       if (run < MIN_REGEX_LITERAL_RUN) {
         return {
           ok: false,
           reason: 'check-too-permissive',
-          detail: `regex ${JSON.stringify(c.pattern)} has a longest literal run of ${String(run)}, so it matches a shape rather than an answer`,
+          detail: `regex ${JSON.stringify(pattern)} has a longest literal run of ${String(run)}, so it matches a shape rather than an answer`,
+          ...(pattern === c.pattern ? {} : { repairedPattern: pattern }),
         };
       }
       // Alternation is covered for free: a compiled pattern matches the prompt
       // when ANY of its branches does.
-      if (ctx.prompt.length > 0 && re.test(ctx.prompt)) {
+      if (ctx.prompt.length > 0 && compiled.regex.test(ctx.prompt)) {
         return {
           ok: false,
           reason: 'check-matches-prompt',
-          detail: `regex ${JSON.stringify(c.pattern)} is satisfied by the rendered prompt itself`,
+          detail: `regex ${JSON.stringify(pattern)} is satisfied by the rendered prompt itself`,
+          ...(pattern === c.pattern ? {} : { repairedPattern: pattern }),
         };
       }
-      return { ok: true, check: { kind: 'regex', where: 'final_text', pattern: c.pattern } };
+      return {
+        ok: true,
+        check: { kind: 'regex', where: 'final_text', pattern },
+        ...(pattern === c.pattern
+          ? {}
+          : { patternRepair: { from: c.pattern, to: pattern, constructs: compiled.repaired } }),
+      };
     }
     case 'tool_called': {
       if (typeof c.tool !== 'string' || !ctx.surface.has(c.tool)) {
@@ -1578,20 +1945,31 @@ function validateCheck(raw: unknown, ctx: CheckPolicyContext): CheckVerdict {
       if (typeof c.pattern !== 'string' || c.pattern.length === 0) {
         return { ok: false, reason: 'invalid-check', detail: 'tool_result_matches has no pattern' };
       }
-      try {
-        new RegExp(c.pattern);
-      } catch {
-        return { ok: false, reason: 'invalid-check', detail: 'regex does not compile' };
+      const compiled = compileCheckPattern(c.pattern);
+      if (!compiled.ok) {
+        return {
+          ok: false,
+          reason: 'invalid-check',
+          detail: `regex does not compile: ${compiled.detail}`,
+        };
       }
-      const run = longestLiteralRun(c.pattern);
+      const pattern = compiled.pattern;
+      const run = longestLiteralRun(pattern);
       if (run < MIN_REGEX_LITERAL_RUN) {
         return {
           ok: false,
           reason: 'check-too-permissive',
-          detail: `tool_result_matches pattern ${JSON.stringify(c.pattern)} has a longest literal run of ${String(run)}, so any result of that tool would satisfy it`,
+          detail: `tool_result_matches pattern ${JSON.stringify(pattern)} has a longest literal run of ${String(run)}, so any result of that tool would satisfy it`,
+          ...(pattern === c.pattern ? {} : { repairedPattern: pattern }),
         };
       }
-      return { ok: true, check: { kind: 'tool_result_matches', tool: c.tool, pattern: c.pattern } };
+      return {
+        ok: true,
+        check: { kind: 'tool_result_matches', tool: c.tool, pattern },
+        ...(pattern === c.pattern
+          ? {}
+          : { patternRepair: { from: c.pattern, to: pattern, constructs: compiled.repaired } }),
+      };
     }
     case 'judge': {
       if (typeof c.rubric !== 'string' || c.rubric.trim().length === 0) {
@@ -1609,6 +1987,35 @@ function validateCheck(raw: unknown, ctx: CheckPolicyContext): CheckVerdict {
     default:
       return { ok: false, reason: 'invalid-check', detail: 'no machine-checkable success predicate' };
   }
+}
+
+/**
+ * The check, flattened into ledger evidence.
+ *
+ * Reads the RAW candidate, not the validated one, because most drops happen
+ * before a validated check exists. Every field is optional and only present
+ * when the candidate actually carried it, so nothing is invented (a `judge`
+ * rubric is deliberately left out: it is prose, it is not what any of these
+ * rules rejected, and it is the one check field that can run long).
+ */
+function checkEvidence(raw: unknown): {
+  checkKind: string;
+  checkPattern?: string;
+  checkValue?: string;
+  checkTool?: string;
+} {
+  const c = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    checkKind: typeof c['kind'] === 'string' ? c['kind'] : 'none',
+    ...(typeof c['pattern'] === 'string' ? { checkPattern: c['pattern'] } : {}),
+    ...(typeof c['value'] === 'string' ? { checkValue: c['value'] } : {}),
+    ...(typeof c['tool'] === 'string' ? { checkTool: c['tool'] } : {}),
+  };
+}
+
+/** The same flattening for a check that already passed validation. */
+function checkEvidenceOf(check: TaskCheck): ReturnType<typeof checkEvidence> {
+  return checkEvidence(check);
 }
 
 function slugId(raw: unknown, fallbackIndex: number): string {
@@ -1780,16 +2187,30 @@ function validateTask(raw: RawTask, position: number, ctx: ValidationContext): F
       id,
       reason: verdict.reason,
       detail: verdict.detail,
+      // The predicate that did the rejecting, verbatim. Without it a reader
+      // holding the published record cannot tell a broken check from a
+      // correctly refused one.
       evidence: {
-        checkKind: typeof (raw.check as { kind?: unknown } | undefined)?.kind === 'string'
-          ? String((raw.check as { kind?: unknown }).kind)
-          : 'none',
+        ...checkEvidence(raw.check),
+        ...(verdict.repairedPattern === undefined
+          ? {}
+          : { checkPatternRepaired: verdict.repairedPattern }),
         promptExcerpt: excerpt(prompt),
       },
     });
     return null;
   }
   const check = verdict.check;
+  if (verdict.patternRepair !== undefined) {
+    const { from, to, constructs } = verdict.patternRepair;
+    ctx.repairs.push({
+      id,
+      kind: 'check-pattern-dialect',
+      detail:
+        `translated ${constructs.join(', ')} into ECMAScript: ${JSON.stringify(from)} became ` +
+        `${JSON.stringify(to)}`,
+    });
+  }
   if (check.kind === 'judge') ctx.judgeCount += 1;
 
   const expected = chainExpectedTools(id, expectedRaw, ctx);
@@ -2109,7 +2530,10 @@ export async function synthesizeTaskSuite(
         detail:
           'a model with no tools at all answered this correctly, so it measures the model rather than the server',
         evidence: {
-          checkKind: task.check.kind,
+          // The predicate the cold answer was graded against, alongside the
+          // cold answer itself. A screen drop is decided by our own check, so
+          // the check has to be readable from the record that reports it.
+          ...checkEvidenceOf(task.check),
           promptExcerpt: task.prompt.slice(0, 200),
           ...(record.coldAnswerExcerpt === undefined
             ? {}

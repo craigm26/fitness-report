@@ -24,7 +24,7 @@
  * lie) while the scorer reads only the frames the scored drive produced.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -147,6 +147,12 @@ export interface CliOptions {
   skipProbes: boolean;
   publishBase: string;
   timeoutMs?: number;
+  /**
+   * Discard the run artifacts already in `--out` and record this run into a
+   * clean directory. Without it, an out dir that already holds a tape REFUSES
+   * the run before a single token is spent (see `prepareOutDir`).
+   */
+  overwrite: boolean;
 }
 
 export function parseArgs(argv: readonly string[]): CliOptions {
@@ -154,7 +160,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   if (args[0] === 'run') args.shift();
   const url = args.shift();
   if (url === undefined || url.startsWith('--')) {
-    throw new Error('usage: fitness-report run <url> [--auth-token T] [--pin 2026-07-28] [--out DIR] [--runner MODEL] [--max-tasks N]');
+    throw new Error('usage: fitness-report run <url> [--auth-token T] [--pin 2026-07-28] [--out DIR] [--overwrite] [--runner MODEL] [--max-tasks N]');
   }
 
   const opts: CliOptions = {
@@ -167,7 +173,8 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     constructReps: 1,
     evidenceDrive: false,
     skipProbes: false,
-    publishBase: DEFAULT_PUBLISH_BASE
+    publishBase: DEFAULT_PUBLISH_BASE,
+    overwrite: false
   };
 
   while (args.length > 0) {
@@ -181,6 +188,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       case '--auth-token': opts.authToken = value(); break;
       case '--pin': opts.pin = value(); break;
       case '--out': opts.out = value(); break;
+      case '--overwrite': opts.overwrite = true; break;
       case '--runner': opts.runner = value(); break;
       case '--judge': opts.judge = value(); break;
       case '--cheap': opts.runner = 'claude-haiku-4-5'; break;
@@ -913,6 +921,89 @@ export interface PipelineResult {
   };
 }
 
+/**
+ * Every file a completed run leaves in its out directory. `finish()` truncates
+ * report.json, report.md and the publish copies on every write, and the tapes
+ * used to be the one exception: they were opened in append mode, so a rerun
+ * into a directory that already held a run wrote a SECOND meta line and a
+ * second session onto the first run's tape.
+ *
+ * `suite-meta.json` is the reason this list is not just the two tapes. It is
+ * written only when synthesis produced a ledger, so a rerun that refuses before
+ * synthesis leaves the PREVIOUS run's synthesis ledger sitting beside the new
+ * run's report, describing a suite that report never had.
+ */
+const RUN_ARTIFACTS = [
+  'mcp.jsonl',
+  'agent.jsonl',
+  'report.json',
+  'report.md',
+  'suite.json',
+  'suite-meta.json',
+  join('publish', 'mcp.jsonl'),
+  join('publish', 'agent.jsonl')
+] as const;
+
+/** The two files whose presence means "a run was recorded here". */
+const TAPE_FILES = ['mcp.jsonl', 'agent.jsonl'] as const;
+
+/**
+ * Thrown before the first token is spent when `--out` names a directory that
+ * already holds a recording. DESIGN decision 7 publishes tapes at
+ * `/traces/<runId>/<plane>.jsonl`, and one directory therefore has to mean one
+ * run: two sessions in one file serve the earlier run's frames under the later
+ * run's replay link, and `mcp-tape stats` reports the two as one session with a
+ * duration spanning the gap between them.
+ */
+export class OutDirInUseError extends Error {
+  readonly outDir: string;
+  readonly tapes: readonly string[];
+
+  constructor(outDir: string, tapes: readonly string[]) {
+    super(
+      `${outDir} already holds a recorded run (${tapes.join(', ')}). One run directory is one ` +
+        'run: recording this one here would append a second session to that tape and publish ' +
+        'its frames under this run\'s replay link. Pass a fresh --out, or --overwrite to ' +
+        'discard the run that is there.'
+    );
+    this.name = 'OutDirInUseError';
+    this.outDir = outDir;
+    this.tapes = [...tapes];
+  }
+}
+
+/**
+ * Make `outDir` a directory that describes exactly ONE run, or refuse.
+ *
+ * Returns the artifacts that were discarded, so the caller can say out loud
+ * what `--overwrite` destroyed rather than doing it silently.
+ */
+export async function prepareOutDir(
+  outDir: string,
+  overwrite: boolean
+): Promise<{ cleared: readonly string[] }> {
+  await mkdir(outDir, { recursive: true });
+
+  const occupied: string[] = [];
+  for (const name of TAPE_FILES) {
+    // A zero-byte tape is not a recording (an interrupted open leaves one), and
+    // must not refuse a run.
+    const info = await stat(join(outDir, name)).catch(() => null);
+    if (info !== null && info.size > 0) occupied.push(name);
+  }
+  if (occupied.length > 0 && !overwrite) throw new OutDirInUseError(outDir, occupied);
+  if (occupied.length === 0) return { cleared: [] };
+
+  const cleared: string[] = [];
+  for (const name of RUN_ARTIFACTS) {
+    const path = join(outDir, name);
+    if ((await stat(path).catch(() => null)) === null) continue;
+    await rm(path, { force: true });
+    cleared.push(name);
+  }
+  return { cleared };
+}
+
 export async function runPipeline(opts: CliOptions, deps: {
   anthropic?: ModelClient;
   now?: () => Date;
@@ -923,7 +1014,12 @@ export async function runPipeline(opts: CliOptions, deps: {
   const startedAt = now().toISOString();
   const runId = `${slugOf(opts.url)}-${startedAt.replace(/[:.]/g, '-')}`;
   const outDir = resolve(opts.out ?? join('runs', runId));
-  await mkdir(outDir, { recursive: true });
+  // Before the connection, the synthesis call and every dollar after it: a run
+  // directory describes ONE run, and this either makes that true or refuses.
+  const prepared = await prepareOutDir(outDir, opts.overwrite);
+  if (prepared.cleared.length > 0) {
+    log(`--overwrite: discarded the previous run in ${outDir} (${prepared.cleared.join(', ')})`);
+  }
 
   // The published pre-registration copy is DERIVED from the frozen policy the
   // run persists into its own record, so the sentence a reader sees and the

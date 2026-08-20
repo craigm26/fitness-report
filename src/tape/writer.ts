@@ -21,6 +21,18 @@
  *   DELTA 3 — rotation removed entirely. A rotated tape loses its meta line on
  *     the base path, which breaks every downstream reader (mcp-tape stats, the
  *     mcpreplay viewer) and would silently truncate published evidence.
+ *   DELTA 4 — one file holds exactly ONE session. The port inherited `open(path,
+ *     'a')` from a writer whose caller derived a fresh `<ts>-<label>.jsonl` path
+ *     every time, so append could never collide. DELTA 2 took that guarantee
+ *     away: our path is `<outDir>/<plane>.jsonl`, and an operator who reruns
+ *     into an out dir they already used silently appended a SECOND meta line and
+ *     a second session onto the first run's tape. Everything else in a run
+ *     directory is truncated on rewrite (report.json, report.md, suite.json), so
+ *     the tape was the one file where the directory stopped describing one run:
+ *     the report named run B while the tape served A's frames, and a replay link
+ *     for B opened A. `TapeWriter.open` now REFUSES a path that already holds
+ *     bytes unless the caller passes `truncate: true` to say, in one explicit
+ *     word, that it means to discard the recording that is there.
  *
  * The writer does NOT redact. Redaction runs only on the published copy
  * (see ./redact.ts); scoring reads these pre-redaction records.
@@ -29,7 +41,7 @@
  * double-counts every tool call in mcp-tape stats and in the web renderer.
  */
 
-import { mkdir, open, type FileHandle } from 'node:fs/promises';
+import { mkdir, open, stat, type FileHandle } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type {
   TapeEnd,
@@ -49,6 +61,34 @@ import type {
  */
 export interface TapeWriterOptions extends TapeWriterOpts {
   onFrame?: (line: TapeLine) => void;
+  /**
+   * Discard whatever is already at `path` and start a clean tape (DELTA 4).
+   * Omitted or false, an existing non-empty file is a hard error: a second
+   * session appended to one tape is two runs wearing one run's replay link.
+   */
+  truncate?: boolean;
+}
+
+/**
+ * Thrown when a run would have written a second session onto an existing tape.
+ * Typed so a caller can tell "this directory already holds a recording" apart
+ * from a disk failure and say something useful about it.
+ */
+export class TapeExistsError extends Error {
+  readonly path: string;
+  readonly bytes: number;
+
+  constructor(path: string, bytes: number) {
+    super(
+      `tape: ${path} already holds ${bytes} bytes. One tape file is one session: ` +
+        'appending a second run here would serve its frames under the first run\'s ' +
+        'replay link. Write to a fresh directory, or pass truncate:true to discard ' +
+        'the existing recording.',
+    );
+    this.name = 'TapeExistsError';
+    this.path = path;
+    this.bytes = bytes;
+  }
 }
 
 /**
@@ -75,11 +115,22 @@ class SerialAppender {
 
   private constructor(private readonly fh: FileHandle) {}
 
-  static async open(path: string): Promise<SerialAppender> {
+  static async open(path: string, truncate: boolean): Promise<SerialAppender> {
     // The run directory is ours to own: callers pass runs/<runId>/<plane>.jsonl
     // and should not have to pre-create it just to start recording.
     await mkdir(dirname(path), { recursive: true });
-    const fh = await open(path, 'a');
+    if (!truncate) {
+      // A zero-byte file is not a recording: an interrupted open, or a
+      // pre-created placeholder, must not block a run.
+      const existing = await stat(path).catch(() => null);
+      if (existing !== null && existing.size > 0) {
+        throw new TapeExistsError(path, existing.size);
+      }
+    }
+    // 'w' truncates; 'a' is kept for the checked path so a zero-byte file that
+    // appeared between the stat and the open is still written, never clobbered
+    // by a mode that assumes the check is still true.
+    const fh = await open(path, truncate ? 'w' : 'a');
     return new SerialAppender(fh);
   }
 
@@ -124,11 +175,14 @@ export class TapeWriter {
    * pinned: v, type, startedAt, label, command, then the extension fields, and
    * optional extension fields are omitted entirely when undefined rather than
    * written as null.
+   *
+   * Throws `TapeExistsError` when `path` already holds a recording and
+   * `truncate` was not requested (DELTA 4).
    */
   static async open(opts: TapeWriterOptions): Promise<TapeWriter> {
     const m = opts.meta;
     requireTimestamp(m.startedAt, 'meta.startedAt');
-    const out = await SerialAppender.open(opts.path);
+    const out = await SerialAppender.open(opts.path, opts.truncate === true);
     const writer = new TapeWriter(out, opts.path, m.startedAt, opts.onFrame);
     const meta: TapeMeta = {
       v: 1,
