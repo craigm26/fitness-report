@@ -15,7 +15,11 @@ unset ANTHROPIC_API_KEY
 python3 - "$SLUG" "$EC" <<'EOF'
 import json, sys, os
 slug, ec = sys.argv[1], int(sys.argv[2])
-OPUS_EST = 0.15  # synthesis allowance per run (opus-5, not recorded in agent plane)
+# Judge spend is MEASURED from run.judgeUsage when the run recorded it (v0.3+).
+# The fallback below is only for runs that predate that block, and it is a
+# stated guess, not a measurement: the first measured value came in at $0.42,
+# nearly three times this figure, so any total resting on it is a lower bound.
+OPUS_EST = 0.42
 entry = {"slug": slug, "exit": ec, "outcome": None, "sonnetUsd": None, "estUsd": None,
          "firstTry": None, "tasks": None, "refusedAt": None}
 path = f"runs/sweep/{slug}/report.json"
@@ -28,7 +32,11 @@ if os.path.exists(path):
     per = models.get("perModel") or []
     sonnet = sum(m.get("estCostUsd") or 0 for m in per)
     entry["sonnetUsd"] = round(sonnet, 4)
-    entry["estUsd"] = round(sonnet + OPUS_EST, 4)
+    ju = (r.get("run") or {}).get("judgeUsage") or {}
+    judge = ju.get("estCostUsd")
+    entry["judgeUsd"] = round(judge, 4) if judge is not None else None
+    entry["judgeMeasured"] = judge is not None
+    entry["estUsd"] = round(sonnet + (judge if judge is not None else OPUS_EST), 4)
     sc = r.get("score")
     if sc:
         ft = sc.get("firstTrySuccess") or {}
