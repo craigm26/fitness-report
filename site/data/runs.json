@@ -2781,6 +2781,856 @@
    "credentialContext": "anonymous"
   },
   "run": {
+   "id": "mcp-api-coingecko-com-2026-08-19T23-43-21-646Z",
+   "startedAt": "2026-08-19T23:43:21.646Z",
+   "harnessVersion": "0.1.0",
+   "runnerModel": "claude-sonnet-5",
+   "judgeModel": "claude-opus-5",
+   "suiteHash": "d7395e52e9caf1b3e8df61b97a75d7edb47faeeb0eaff20c2d2a8e8b0092b4e1",
+   "taskBudget": 20000,
+   "generatorVersion": "fitness-report-generator/2",
+   "nullScreenEnabled": true
+  },
+  "probes": {
+   "specCurrency": "2025-11-25",
+   "findings": [
+    {
+     "id": "spec-currency",
+     "pass": false,
+     "detail": "negotiated 2025-11-25 (legacy era; the current revision is 2026-07-28)",
+     "evidence": {
+      "negotiatedVersion": "2025-11-25",
+      "era": "legacy"
+     }
+    },
+    {
+     "id": "bogus-version-accepted",
+     "pass": true,
+     "detail": "counter-offered 2025-11-25 instead of the bogus 1999-01-01",
+     "evidence": {
+      "status": 200,
+      "offered": "1999-01-01",
+      "envelope": {
+       "result": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+         "tools": {},
+         "logging": {}
+        },
+        "serverInfo": {
+         "name": "coingecko_coingecko_typescript_api",
+         "version": "7.0.0"
+        },
+        "instructions": "\n  This is the coingecko MCP server.\n\n  Available tools:\n  - search_docs: Search SDK documentation to find the right methods and parameters.\n  - execute: Run TypeScript code against a pre-authenticated SDK client. Define an async run(client) function.\n\n  Workflow:\n  - If unsure about the API, call search_docs first.\n  - Write complete solutions in a single execute call when possible. For large datasets, use API filters to narrow results or paginate within a single execute block.\n  - If execute returns an error, read the error and fix your code rather than retrying the same approach.\n  - Variables do not persist between execute calls. Return or log all data you need.\n  - Individual HTTP requests to the API have a 30-second timeout. If a request times out, try a smaller query or add filters.\n  - Code execution has a total timeout of approximately 5 minutes. If your code times out, simplify it or break it into smaller steps.\n  "
+       },
+       "jsonrpc": "2.0",
+       "id": "fitness-probe-bogus-version"
+      },
+      "answeredVersion": "2025-11-25"
+     }
+    },
+    {
+     "id": "header-mismatch-accepted",
+     "pass": null,
+     "detail": "could not check: SEP-2243 header conformance is defined on the modern era only; this connection negotiated 2025-11-25 (legacy)"
+    },
+    {
+     "id": "server-discover-present",
+     "pass": null,
+     "detail": "could not check: server/discover is a 2026-07-28 MUST; this connection negotiated 2025-11-25 (legacy)"
+    },
+    {
+     "id": "cache-hints",
+     "pass": null,
+     "detail": "could not check: ttlMs/cacheScope are 2026-07-28 fields; this connection negotiated 2025-11-25 (legacy)"
+    },
+    {
+     "id": "deprecation-surface",
+     "pass": null,
+     "detail": "could not check: deleted-vocabulary checks are defined against 2026-07-28; this connection negotiated 2025-11-25",
+     "evidence": {
+      "deletedVocabulary": [],
+      "notes": [],
+      "toolCount": 2,
+      "era": "legacy"
+     }
+    }
+   ]
+  },
+  "gates": {
+   "order": [
+    "protocol_hygiene",
+    "structural",
+    "answer_leak",
+    "suite_size",
+    "plan_power",
+    "construct",
+    "null_baseline"
+   ],
+   "records": [
+    {
+     "gate": "protocol_hygiene",
+     "ok": false,
+     "costTier": "free",
+     "reason": "hygiene_findings_present",
+     "detail": {
+      "note": "Protocol hygiene is a reported column, not a refusal. A hygiene failure is a fact about the server, not evidence that this eval is invalid.",
+      "failed": [
+       "spec-currency"
+      ]
+     }
+    },
+    {
+     "gate": "structural",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nRequested": 24,
+      "nGenerated": 12,
+      "nHolding": 12,
+      "admissionRate": 0.5,
+      "holdRate": 1,
+      "minAdmissionRate": 0.25,
+      "minGenerated": 8,
+      "failures": [],
+      "ok": true,
+      "reason": "ok",
+      "explain": "OK: 12/12 admitted cases hold, admission rate 50.0%. Necessary, not sufficient: run the construct gate.",
+      "synthesis": {
+       "suiteHash": "d7395e52e9caf1b3e8df61b97a75d7edb47faeeb0eaff20c2d2a8e8b0092b4e1",
+       "generatorVersion": "fitness-report-generator/2",
+       "generatorModel": "claude-opus-5",
+       "yield": {
+        "emitted": 24,
+        "rewritten": 1,
+        "candidates": 24,
+        "entriesDiscarded": 0,
+        "admitted": 12,
+        "trimmed": 10,
+        "admissionRate": 0.5,
+        "reconciles": true,
+        "shortfall": 0,
+        "minTasks": 8,
+        "insufficient": false
+       },
+       "dropsByRule": {
+        "check-too-permissive": 1,
+        "invalid-check": 1
+       },
+       "nullScreen": {
+        "enabled": true,
+        "model": "claude-sonnet-5",
+        "screened": 0,
+        "dropped": 0,
+        "errors": 0,
+        "inputTokens": 0,
+        "outputTokens": 0
+       },
+       "repairs": 1,
+       "leaksAtGeneration": 1,
+       "regenerationAttempted": true,
+       "failure": null,
+       "detail": "full ledger in suite-meta.json"
+      },
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 0,
+      "note": "nRequested is the candidate count the generator actually put through validation. Generator fitness-report-generator/2: v1 and v2 admission rates are not comparable and must never share a table."
+     }
+    },
+    {
+     "gate": "answer_leak",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "leaks": [],
+      "regenerationAttempted": true,
+      "leaksFoundAtGeneration": [
+       {
+        "taskId": "peercoin-history-snapshot",
+        "phrase": "Peercoin's USD market cap and total volume on 30-12-2023",
+        "source": "prompt"
+       }
+      ],
+      "corpus": [
+       "rendered prompt",
+       "bound params",
+       "server instructions",
+       "tool descriptions"
+      ],
+      "contextLeakDropsAtGeneration": 0
+     }
+    },
+    {
+     "gate": "suite_size",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nTasks": 12,
+      "minTasks": 8,
+      "toolCount": 2,
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 0,
+      "note": "With a median of 2.5 tools on the open roster, a suite below 8 tasks cannot separate a good server from a lucky one. This refuses rather than publishing a 2-task 100 percent."
+     }
+    },
+    {
+     "gate": "plan_power",
+     "ok": true,
+     "costTier": "free",
+     "reason": "underpowered_recorded",
+     "detail": {
+      "requiredN": 78,
+      "actualN": 12,
+      "threshold": 0.9,
+      "detectableRate": 0.8,
+      "power": 0.808179164040748,
+      "note": "This does not refuse. It is why a raw PASS below the planned n downgrades to EXTEND under the published-verdict rule."
+     }
+    },
+    {
+     "gate": "construct",
+     "ok": false,
+     "costTier": "paid",
+     "verdict": {
+      "outcome": "EXTEND",
+      "k": 10,
+      "n": 12,
+      "threshold": 0.9,
+      "alpha": 0.05,
+      "pValue": 0.3409977482109997
+     },
+     "reason": "under_resolved",
+     "detail": {
+      "n": 12,
+      "nIntended": 10,
+      "rate": 0.8333333333333334,
+      "errors": 0,
+      "errorRate": 0,
+      "maxErrorRate": 0.05,
+      "compromised": false,
+      "reps": 1,
+      "published": {
+       "outcome": "EXTEND",
+       "k": 10,
+       "n": 12,
+       "threshold": 0.9,
+       "alpha": 0.05,
+       "pValue": 0.3409977482109997,
+       "rawOutcome": "EXTEND",
+       "downgraded": false,
+       "wilsonLow": 0.5519636426153274,
+       "wilsonHigh": 0.9530358523851776,
+       "requiredN": 78,
+       "achievedPower": 0.20543105023999975,
+       "detectableRate": 0.8,
+       "reason": "under_resolved"
+      },
+      "constructOracle": "A reference pass counts only when it both satisfied the check and landed a successful call on a tool the task expects. The reference agent is given the answer key, so a text check alone would pass against a server that returned nothing.",
+      "note": "One rep per task in v0, for cost. evalgate runs three; the divergence is recorded here rather than hidden."
+     }
+    },
+    {
+     "gate": "null_baseline",
+     "ok": true,
+     "costTier": "cheap",
+     "reason": "ok",
+     "detail": {
+      "tNull": 0,
+      "tAblate": 0.8333333333333334,
+      "killThreshold": 0.4166666666666667,
+      "outcome": "PROCEED",
+      "halts": false,
+      "ok": true,
+      "reason": "ok",
+      "rates": [
+       {
+        "label": "no-tools",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "stubbed-empty",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "random-valid-args",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       }
+      ],
+      "percentile": 95,
+      "ratio": 0.5,
+      "signalSource": "construct reference rate (the drive did not run)",
+      "measuredBeforePaidTier": true,
+      "decidedAfter": "construct",
+      "explain": "OK: noise floor 0.000 is below the 0.5 kill threshold of 0.417 against signal 0.833."
+     }
+    }
+   ],
+   "extensionPolicy": {
+    "extensionSize": 0,
+    "maxExtensions": 0
+   },
+   "refusedAt": "construct"
+  },
+  "outcome": "EXTEND_EXHAUSTED",
+  "traceLinks": {
+   "mcp": "https://fitnessreport.dev/traces/mcp-api-coingecko-com-2026-08-19T23-43-21-646Z/mcp.jsonl",
+   "agent": "https://fitnessreport.dev/traces/mcp-api-coingecko-com-2026-08-19T23-43-21-646Z/agent.jsonl",
+   "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fmcp-api-coingecko-com-2026-08-19T23-43-21-646Z%2Fmcp.jsonl;https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fmcp-api-coingecko-com-2026-08-19T23-43-21-646Z%2Fagent.jsonl#view=calls"
+  },
+  "trace_stats": {
+   "schema": "mcp-tape.stats/1",
+   "file": null,
+   "session": {
+    "label": "mcp-api-coingecko-com",
+    "kind": "mcp+llm",
+    "startedAt": "2026-08-19T23:43:21.646Z",
+    "endedAt": "2026-08-19T23:51:51.904Z",
+    "durationMs": 510258,
+    "command": [
+     "fitness-report",
+     "https://mcp.api.coingecko.com/mcp"
+    ],
+    "producer": "fitness-report@0.1.0",
+    "records": {
+     "total": 356,
+     "meta": 2,
+     "message": 84,
+     "event": 110,
+     "turn": 158,
+     "end": 2,
+     "other": 0
+    },
+    "skippedLines": 0,
+    "endReason": "eval_complete",
+    "exitCode": null
+   },
+   "models": {
+    "perModel": [
+     {
+      "model": "claude-sonnet-5",
+      "calls": 73,
+      "inputTokens": 159844,
+      "outputTokens": 16507,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "thinkingTokens": null,
+      "thinkingEstimated": false,
+      "cacheHitRate": 0,
+      "ttftP50Ms": null,
+      "ttftP95Ms": null,
+      "estCostUsd": 0.484758,
+      "priced": true
+     }
+    ],
+    "summary": {
+     "models": 1,
+     "assistantTurns": 73,
+     "turns": 158,
+     "echoedTurns": 0,
+     "inputTokens": 159844,
+     "outputTokens": 16507,
+     "cacheReadTokens": 0,
+     "cacheCreationTokens": 0,
+     "thinkingExactTokens": null,
+     "thinkingEstimatedTokens": null,
+     "cacheHitRate": 0,
+     "totalModelTimeMs": null
+    },
+    "cost": {
+     "estimated": true,
+     "currency": "USD",
+     "totalUsd": 0.484758,
+     "partial": false,
+     "unpricedModels": [],
+     "asOf": "2026-08-19",
+     "source": "bundled"
+    }
+   },
+   "tools": [
+    {
+     "name": "execute",
+     "calls": 32,
+     "errors": 19,
+     "p50Ms": 655,
+     "p95Ms": 1820,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "search_docs",
+     "calls": 5,
+     "errors": 0,
+     "p50Ms": 183,
+     "p95Ms": 229,
+     "origin": "mcp",
+     "pending": 0
+    }
+   ],
+   "errors": [
+    {
+     "t": "2026-08-19T23:49:42.737Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:44.009Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:44.390Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:44.838Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:45.186Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:45.522Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:45.951Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:46.249Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:46.566Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:47.004Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:47.454Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:49:47.952Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+    },
+    {
+     "t": "2026-08-19T23:50:23.797Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Property 'getId' does not exist on type 'Coins'. Did you mean 'getID'?\n    const data = await client.coins.getId({"
+    },
+    {
+     "t": "2026-08-19T23:50:26.898Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Argument of type '{ id: string; tickers: boolean; market_data: boolean; community_data: boolean; developer_data: boolean; localization: boolean; sparkline: boolean; }' is not assignable to parameter of type 'string'.\n    const data = await client.coins.getID({"
+    },
+    {
+     "t": "2026-08-19T23:50:51.365Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Property 'companies' does not exist on type 'PublicTreasuryGetCoinIDResponse'.\n  Property 'companies' does not exist on type 'GovernmentTreasury'.\n    const top3 = response.companies.slice(0, 3).map(c => c.name + ': ' + c.total_holdings);\n- Property 'companies' does not exist on type 'PublicTreasuryGetCoinIDResponse'.\n  Property 'companies' does not exist on type 'GovernmentTreasury'.\n    third: response.companies[2],"
+    },
+    {
+     "t": "2026-08-19T23:51:01.752Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Property 'defi' does not exist on type 'Global'.\n    const res = await client.global.defi.get();"
+    },
+    {
+     "t": "2026-08-19T23:51:27.756Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Property 'asset_platforms' does not exist on type 'Coingecko'. Did you mean 'assetPlatforms'?\n    const platforms = await client.asset_platforms.get({});"
+    },
+    {
+     "t": "2026-08-19T23:51:36.017Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Property 'getId' does not exist on type 'TokenPrice'. Did you mean 'getID'?\n    const res = await client.simple.tokenPrice.getId({"
+    },
+    {
+     "t": "2026-08-19T23:51:43.087Z",
+     "source": "tool",
+     "name": "execute",
+     "message": "The code contains TypeScript diagnostics:\n- Expected 2-3 arguments, but got 1.\n    const res = await client.simple.tokenPrice.getID({"
+    }
+   ],
+   "planes": {
+    "mcp": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "mcp-api-coingecko-com",
+      "kind": "mcp",
+      "startedAt": "2026-08-19T23:43:21.646Z",
+      "endedAt": "2026-08-19T23:51:51.892Z",
+      "durationMs": 510246,
+      "command": [
+       "fitness-report",
+       "https://mcp.api.coingecko.com/mcp"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 196,
+       "meta": 1,
+       "message": 84,
+       "event": 110,
+       "turn": 0,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": null,
+     "tools": [
+      {
+       "name": "execute",
+       "calls": 32,
+       "errors": 19,
+       "p50Ms": 655,
+       "p95Ms": 1820,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "search_docs",
+       "calls": 5,
+       "errors": 0,
+       "p50Ms": 183,
+       "p95Ms": 229,
+       "origin": "mcp",
+       "pending": 0
+      }
+     ],
+     "errors": [
+      {
+       "t": "2026-08-19T23:49:42.737Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:44.009Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:44.390Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:44.838Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:45.186Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:45.522Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:45.951Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:46.249Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:46.566Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:47.004Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:47.454Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:49:47.952Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code is missing a top-level `run` function. Write code within this template:\n\n```\nasync function run(client) {\n  // Fill this out\n}\n```"
+      },
+      {
+       "t": "2026-08-19T23:50:23.797Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'getId' does not exist on type 'Coins'. Did you mean 'getID'?\n    const data = await client.coins.getId({"
+      },
+      {
+       "t": "2026-08-19T23:50:26.898Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Argument of type '{ id: string; tickers: boolean; market_data: boolean; community_data: boolean; developer_data: boolean; localization: boolean; sparkline: boolean; }' is not assignable to parameter of type 'string'.\n    const data = await client.coins.getID({"
+      },
+      {
+       "t": "2026-08-19T23:50:51.365Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'companies' does not exist on type 'PublicTreasuryGetCoinIDResponse'.\n  Property 'companies' does not exist on type 'GovernmentTreasury'.\n    const top3 = response.companies.slice(0, 3).map(c => c.name + ': ' + c.total_holdings);\n- Property 'companies' does not exist on type 'PublicTreasuryGetCoinIDResponse'.\n  Property 'companies' does not exist on type 'GovernmentTreasury'.\n    third: response.companies[2],"
+      },
+      {
+       "t": "2026-08-19T23:51:01.752Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'defi' does not exist on type 'Global'.\n    const res = await client.global.defi.get();"
+      },
+      {
+       "t": "2026-08-19T23:51:27.756Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'asset_platforms' does not exist on type 'Coingecko'. Did you mean 'assetPlatforms'?\n    const platforms = await client.asset_platforms.get({});"
+      },
+      {
+       "t": "2026-08-19T23:51:36.017Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'getId' does not exist on type 'TokenPrice'. Did you mean 'getID'?\n    const res = await client.simple.tokenPrice.getId({"
+      },
+      {
+       "t": "2026-08-19T23:51:43.087Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Expected 2-3 arguments, but got 1.\n    const res = await client.simple.tokenPrice.getID({"
+      }
+     ]
+    },
+    "agent": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "mcp-api-coingecko-com",
+      "kind": "llm",
+      "startedAt": "2026-08-19T23:43:21.646Z",
+      "endedAt": "2026-08-19T23:51:51.904Z",
+      "durationMs": 510258,
+      "command": [
+       "fitness-report",
+       "https://mcp.api.coingecko.com/mcp"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 160,
+       "meta": 1,
+       "message": 0,
+       "event": 0,
+       "turn": 158,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": {
+      "perModel": [
+       {
+        "model": "claude-sonnet-5",
+        "calls": 73,
+        "inputTokens": 159844,
+        "outputTokens": 16507,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": 0,
+        "thinkingTokens": null,
+        "thinkingEstimated": false,
+        "cacheHitRate": 0,
+        "ttftP50Ms": null,
+        "ttftP95Ms": null,
+        "estCostUsd": 0.484758,
+        "priced": true
+       }
+      ],
+      "summary": {
+       "models": 1,
+       "assistantTurns": 73,
+       "turns": 158,
+       "echoedTurns": 0,
+       "inputTokens": 159844,
+       "outputTokens": 16507,
+       "cacheReadTokens": 0,
+       "cacheCreationTokens": 0,
+       "thinkingExactTokens": null,
+       "thinkingEstimatedTokens": null,
+       "cacheHitRate": 0,
+       "totalModelTimeMs": null
+      },
+      "cost": {
+       "estimated": true,
+       "currency": "USD",
+       "totalUsd": 0.484758,
+       "partial": false,
+       "unpricedModels": [],
+       "asOf": "2026-08-19",
+       "source": "bundled"
+      }
+     },
+     "tools": [
+      {
+       "name": "execute",
+       "calls": 38,
+       "errors": 7,
+       "p50Ms": 2754,
+       "p95Ms": 7068,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "search_docs",
+       "calls": 11,
+       "errors": 0,
+       "p50Ms": 2711,
+       "p95Ms": 6854,
+       "origin": "turn",
+       "pending": 0
+      }
+     ],
+     "errors": [
+      {
+       "t": "2026-08-19T23:50:23.796Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'getId' does not exist on type 'Coins'. Did you mean 'getID'?\n    const data = await client.coins.getId({"
+      },
+      {
+       "t": "2026-08-19T23:50:26.898Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Argument of type '{ id: string; tickers: boolean; market_data: boolean; community_data: boolean; developer_data: boolean; localization: boolean; sparkline: boolean; }' is not assignable to parameter of type 'string'.\n    const data = await client.coins.getID({"
+      },
+      {
+       "t": "2026-08-19T23:50:51.365Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'companies' does not exist on type 'PublicTreasuryGetCoinIDResponse'.\n  Property 'companies' does not exist on type 'GovernmentTreasury'.\n    const top3 = response.companies.slice(0, 3).map(c => c.name + ': ' + c.total_holdings);\n- Property 'companies' does not exist on type 'PublicTreasuryGetCoinIDResponse'.\n  Property 'companies' does not exist on type 'GovernmentTreasury'.\n    third: response.companies[2],"
+      },
+      {
+       "t": "2026-08-19T23:51:01.751Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'defi' does not exist on type 'Global'.\n    const res = await client.global.defi.get();"
+      },
+      {
+       "t": "2026-08-19T23:51:27.756Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'asset_platforms' does not exist on type 'Coingecko'. Did you mean 'assetPlatforms'?\n    const platforms = await client.asset_platforms.get({});"
+      },
+      {
+       "t": "2026-08-19T23:51:36.017Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Property 'getId' does not exist on type 'TokenPrice'. Did you mean 'getID'?\n    const res = await client.simple.tokenPrice.getId({"
+      },
+      {
+       "t": "2026-08-19T23:51:43.085Z",
+       "source": "tool",
+       "name": "execute",
+       "message": "The code contains TypeScript diagnostics:\n- Expected 2-3 arguments, but got 1.\n    const res = await client.simple.tokenPrice.getID({"
+      }
+     ]
+    }
+   },
+   "toolsPlane": "mcp"
+  },
+  "methods": [
+   "Construct gate denominator diverges from evalgate: reference-agent errors count, and an error rate above 5% resolves to COMPROMISED rather than silently shrinking n.",
+   "A published PASS additionally requires the Wilson 95% lower bound to clear the threshold, or an n the design was sized for. Otherwise the verdict downgrades to EXTEND.",
+   "Destructive-without-confirmation, v0 rule: a tool is destructive unless it declares readOnlyHint true or destructiveHint false, and every executed call to such a tool counts. The only thing that clears one is recorded evidence that the server asked about that same tool before that same call ran. Confirmation is never inherited from another tool or from elsewhere in the task.",
+   "Construct gate: the reference agent is told the answer, so a text check alone would pass against a dead server. A reference pass counts only when it also landed a successful call on a tool the task expects.",
+   "Multi-round tool input (MRTR) is recorded and then declined in v0. A server that asks for input gets an mrtr-abandoned datum, never a fabricated answer.",
+   "Each task runs under an advisory task budget, so a trapping server yields budget exhausted as a clean unrecoverable-path datum rather than an unbounded bill.",
+   "Prior art: MCPEval for generated task suites, evalgate for the gate math, mcp-tape for the recording format. Our delta is refusal, signed replays, and causal rewrite diffs.",
+   "Task suite generated by fitness-report-generator/2 (judge claude-opus-5). v1 and v2 suites are different measurements and are never merged in one leaderboard column.",
+   "Task candidates are screened at generation time with a single no-tools probe on the runner model. Candidates the cold model answers correctly are deleted before any gate runs, with the reason recorded. The run-time null baseline therefore measures the noise floor of a null-screened suite, not of an arbitrary suite, and is biased downward by construction.",
+   "The screen simulates one of the three null models the gate uses, weakly and with a single sample. It never removes a task from the gate denominator and never changes a gate threshold; the null_baseline rule, its 0.5 ratio and its 95th percentile are unchanged from v1.",
+   "The share of generated candidates the screen deleted is published per server.",
+   "Null screen on this server: 0 of 0 screened candidates were answerable with no server at all.",
+   "Screen spend is not on either tape. The screen made 0 runner-model calls (0 input and 0 output tokens) before the suite existed, so trace_stats cannot see them and any measured cost figure for this run excludes them. The counts are published in the synthesis ledger instead of being dropped."
+  ]
+ },
+ {
+  "schema": "fitness-report/1",
+  "server": {
+   "url": "https://mcp.api.coingecko.com/mcp",
+   "slug": "mcp-api-coingecko-com",
+   "era": "legacy",
+   "negotiatedVersion": "2025-11-25",
+   "serverInfo": {
+    "name": "coingecko_coingecko_typescript_api",
+    "version": "7.0.0"
+   },
+   "instructions": "\n  This is the coingecko MCP server.\n\n  Available tools:\n  - search_docs: Search SDK documentation to find the right methods and parameters.\n  - execute: Run TypeScript code against a pre-authenticated SDK client. Define an async run(client) function.\n\n  Workflow:\n  - If unsure about the API, call search_docs first.\n  - Write complete solutions in a single execute call when possible. For large datasets, use API filters to narrow results or paginate within a single execute block.\n  - If execute returns an error, read the error and fix your code rather than retrying the same approach.\n  - Variables do not persist between execute calls. Return or log all data you need.\n  - Individual HTTP requests to the API have a 30-second timeout. If a request times out, try a smaller query or add filters.\n  - Code execution has a total timeout of approximately 5 minutes. If your code times out, simplify it or break it into smaller steps.\n  ",
+   "capabilities": {
+    "logging": {},
+    "tools": {}
+   },
+   "transportShape": "sse",
+   "sessionful": true,
+   "credentialContext": "anonymous"
+  },
+  "run": {
    "id": "mcp-api-coingecko-com-2026-08-19T21-52-31-372Z",
    "startedAt": "2026-08-19T21:52:31.372Z",
    "harnessVersion": "0.1.0",
@@ -5427,6 +6277,664 @@
    "credentialContext": "anonymous"
   },
   "run": {
+   "id": "gitmcp-io-2026-08-20T00-02-42-466Z",
+   "startedAt": "2026-08-20T00:02:42.466Z",
+   "harnessVersion": "0.1.0",
+   "runnerModel": "claude-sonnet-5",
+   "judgeModel": "claude-opus-5",
+   "suiteHash": "a6a7e2cb34775af0cb2a564aa2014967ca5d152239dba2d290c28eefd9066e72",
+   "taskBudget": 20000,
+   "generatorVersion": "fitness-report-generator/2",
+   "nullScreenEnabled": true
+  },
+  "probes": {
+   "specCurrency": "2025-03-26",
+   "findings": [
+    {
+     "id": "spec-currency",
+     "pass": false,
+     "detail": "negotiated 2025-03-26 (legacy era; the current revision is 2026-07-28)",
+     "evidence": {
+      "negotiatedVersion": "2025-03-26",
+      "era": "legacy"
+     }
+    },
+    {
+     "id": "bogus-version-accepted",
+     "pass": true,
+     "detail": "counter-offered 2025-03-26 instead of the bogus 1999-01-01",
+     "evidence": {
+      "status": 200,
+      "offered": "1999-01-01",
+      "envelope": {
+       "jsonrpc": "2.0",
+       "id": "fitness-probe-bogus-version",
+       "result": {
+        "protocolVersion": "2025-03-26",
+        "capabilities": {
+         "tools": {
+          "listChanged": true
+         }
+        },
+        "serverInfo": {
+         "name": "GitMCP",
+         "version": "1.1.0"
+        }
+       }
+      },
+      "answeredVersion": "2025-03-26"
+     }
+    },
+    {
+     "id": "header-mismatch-accepted",
+     "pass": null,
+     "detail": "could not check: SEP-2243 header conformance is defined on the modern era only; this connection negotiated 2025-03-26 (legacy)"
+    },
+    {
+     "id": "server-discover-present",
+     "pass": null,
+     "detail": "could not check: server/discover is a 2026-07-28 MUST; this connection negotiated 2025-03-26 (legacy)"
+    },
+    {
+     "id": "cache-hints",
+     "pass": null,
+     "detail": "could not check: ttlMs/cacheScope are 2026-07-28 fields; this connection negotiated 2025-03-26 (legacy)"
+    },
+    {
+     "id": "deprecation-surface",
+     "pass": null,
+     "detail": "could not check: deleted-vocabulary checks are defined against 2026-07-28; this connection negotiated 2025-03-26",
+     "evidence": {
+      "deletedVocabulary": [],
+      "notes": [],
+      "toolCount": 5,
+      "era": "legacy"
+     }
+    }
+   ]
+  },
+  "gates": {
+   "order": [
+    "protocol_hygiene",
+    "structural",
+    "answer_leak",
+    "suite_size",
+    "plan_power",
+    "construct",
+    "null_baseline"
+   ],
+   "records": [
+    {
+     "gate": "protocol_hygiene",
+     "ok": false,
+     "costTier": "free",
+     "reason": "hygiene_findings_present",
+     "detail": {
+      "note": "Protocol hygiene is a reported column, not a refusal. A hygiene failure is a fact about the server, not evidence that this eval is invalid.",
+      "failed": [
+       "spec-currency"
+      ]
+     }
+    },
+    {
+     "gate": "structural",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nRequested": 24,
+      "nGenerated": 12,
+      "nHolding": 12,
+      "admissionRate": 0.5,
+      "holdRate": 1,
+      "minAdmissionRate": 0.25,
+      "minGenerated": 8,
+      "failures": [],
+      "ok": true,
+      "reason": "ok",
+      "explain": "OK: 12/12 admitted cases hold, admission rate 50.0%. Necessary, not sufficient: run the construct gate.",
+      "synthesis": {
+       "suiteHash": "a6a7e2cb34775af0cb2a564aa2014967ca5d152239dba2d290c28eefd9066e72",
+       "generatorVersion": "fitness-report-generator/2",
+       "generatorModel": "claude-opus-5",
+       "yield": {
+        "emitted": 24,
+        "rewritten": 1,
+        "candidates": 24,
+        "entriesDiscarded": 0,
+        "admitted": 12,
+        "trimmed": 6,
+        "admissionRate": 0.5,
+        "reconciles": true,
+        "shortfall": 0,
+        "minTasks": 8,
+        "insufficient": false
+       },
+       "dropsByRule": {
+        "invalid-check": 6
+       },
+       "nullScreen": {
+        "enabled": true,
+        "model": "claude-sonnet-5",
+        "screened": 0,
+        "dropped": 0,
+        "errors": 0,
+        "inputTokens": 0,
+        "outputTokens": 0
+       },
+       "repairs": 1,
+       "leaksAtGeneration": 1,
+       "regenerationAttempted": true,
+       "failure": null,
+       "detail": "full ledger in suite-meta.json"
+      },
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 0,
+      "note": "nRequested is the candidate count the generator actually put through validation. Generator fitness-report-generator/2: v1 and v2 admission rates are not comparable and must never share a table."
+     }
+    },
+    {
+     "gate": "answer_leak",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "leaks": [],
+      "regenerationAttempted": true,
+      "leaksFoundAtGeneration": [
+       {
+        "taskId": "starship-nix-shell-module",
+        "phrase": "nix_shell",
+        "source": "prompt"
+       }
+      ],
+      "corpus": [
+       "rendered prompt",
+       "bound params",
+       "server instructions",
+       "tool descriptions"
+      ],
+      "contextLeakDropsAtGeneration": 0
+     }
+    },
+    {
+     "gate": "suite_size",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nTasks": 12,
+      "minTasks": 8,
+      "toolCount": 5,
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 0,
+      "note": "With a median of 2.5 tools on the open roster, a suite below 8 tasks cannot separate a good server from a lucky one. This refuses rather than publishing a 2-task 100 percent."
+     }
+    },
+    {
+     "gate": "plan_power",
+     "ok": true,
+     "costTier": "free",
+     "reason": "underpowered_recorded",
+     "detail": {
+      "requiredN": 78,
+      "actualN": 12,
+      "threshold": 0.9,
+      "detectableRate": 0.8,
+      "power": 0.808179164040748,
+      "note": "This does not refuse. It is why a raw PASS below the planned n downgrades to EXTEND under the published-verdict rule."
+     }
+    },
+    {
+     "gate": "construct",
+     "ok": false,
+     "costTier": "paid",
+     "verdict": {
+      "outcome": "EXTEND",
+      "k": 9,
+      "n": 12,
+      "threshold": 0.9,
+      "alpha": 0.05,
+      "pValue": 0.11086997774499988
+     },
+     "reason": "under_resolved",
+     "detail": {
+      "n": 12,
+      "nIntended": 9,
+      "rate": 0.75,
+      "errors": 0,
+      "errorRate": 0,
+      "maxErrorRate": 0.05,
+      "compromised": false,
+      "reps": 1,
+      "published": {
+       "outcome": "EXTEND",
+       "k": 9,
+       "n": 12,
+       "threshold": 0.9,
+       "alpha": 0.05,
+       "pValue": 0.11086997774499988,
+       "rawOutcome": "EXTEND",
+       "downgraded": false,
+       "wilsonLow": 0.46768966087934005,
+       "wilsonHigh": 0.9110599603710386,
+       "requiredN": 78,
+       "achievedPower": 0.20543105023999975,
+       "detectableRate": 0.8,
+       "reason": "under_resolved"
+      },
+      "constructOracle": "A reference pass counts only when it both satisfied the check and landed a successful call on a tool the task expects. The reference agent is given the answer key, so a text check alone would pass against a server that returned nothing.",
+      "note": "One rep per task in v0, for cost. evalgate runs three; the divergence is recorded here rather than hidden."
+     }
+    },
+    {
+     "gate": "null_baseline",
+     "ok": true,
+     "costTier": "cheap",
+     "reason": "ok",
+     "detail": {
+      "tNull": 0,
+      "tAblate": 0.75,
+      "killThreshold": 0.375,
+      "outcome": "PROCEED",
+      "halts": false,
+      "ok": true,
+      "reason": "ok",
+      "rates": [
+       {
+        "label": "no-tools",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "stubbed-empty",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "random-valid-args",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       }
+      ],
+      "percentile": 95,
+      "ratio": 0.5,
+      "signalSource": "construct reference rate (the drive did not run)",
+      "measuredBeforePaidTier": true,
+      "decidedAfter": "construct",
+      "explain": "OK: noise floor 0.000 is below the 0.5 kill threshold of 0.375 against signal 0.750."
+     }
+    }
+   ],
+   "extensionPolicy": {
+    "extensionSize": 0,
+    "maxExtensions": 0
+   },
+   "refusedAt": "construct"
+  },
+  "outcome": "EXTEND_EXHAUSTED",
+  "traceLinks": {
+   "mcp": "https://fitnessreport.dev/traces/gitmcp-io-2026-08-20T00-02-42-466Z/mcp.jsonl",
+   "agent": "https://fitnessreport.dev/traces/gitmcp-io-2026-08-20T00-02-42-466Z/agent.jsonl",
+   "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fgitmcp-io-2026-08-20T00-02-42-466Z%2Fmcp.jsonl;https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fgitmcp-io-2026-08-20T00-02-42-466Z%2Fagent.jsonl#view=calls"
+  },
+  "trace_stats": {
+   "schema": "mcp-tape.stats/1",
+   "file": null,
+   "session": {
+    "label": "gitmcp-io",
+    "kind": "mcp+llm",
+    "startedAt": "2026-08-20T00:02:42.466Z",
+    "endedAt": "2026-08-20T00:17:06.880Z",
+    "durationMs": 864414,
+    "command": [
+     "fitness-report",
+     "https://gitmcp.io/docs"
+    ],
+    "producer": "fitness-report@0.1.0",
+    "records": {
+     "total": 352,
+     "meta": 2,
+     "message": 76,
+     "event": 126,
+     "turn": 146,
+     "end": 2,
+     "other": 0
+    },
+    "skippedLines": 0,
+    "endReason": "eval_complete",
+    "exitCode": null
+   },
+   "models": {
+    "perModel": [
+     {
+      "model": "claude-sonnet-5",
+      "calls": 68,
+      "inputTokens": 216615,
+      "outputTokens": 10505,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "thinkingTokens": null,
+      "thinkingEstimated": false,
+      "cacheHitRate": 0,
+      "ttftP50Ms": null,
+      "ttftP95Ms": null,
+      "estCostUsd": 0.53828,
+      "priced": true
+     }
+    ],
+    "summary": {
+     "models": 1,
+     "assistantTurns": 68,
+     "turns": 146,
+     "echoedTurns": 0,
+     "inputTokens": 216615,
+     "outputTokens": 10505,
+     "cacheReadTokens": 0,
+     "cacheCreationTokens": 0,
+     "thinkingExactTokens": null,
+     "thinkingEstimatedTokens": null,
+     "cacheHitRate": 0,
+     "totalModelTimeMs": null
+    },
+    "cost": {
+     "estimated": true,
+     "currency": "USD",
+     "totalUsd": 0.53828,
+     "partial": false,
+     "unpricedModels": [],
+     "asOf": "2026-08-19",
+     "source": "bundled"
+    }
+   },
+   "tools": [
+    {
+     "name": "search_generic_documentation",
+     "calls": 20,
+     "errors": 0,
+     "p50Ms": 8487,
+     "p95Ms": 48511,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "fetch_generic_url_content",
+     "calls": 6,
+     "errors": 0,
+     "p50Ms": 457,
+     "p95Ms": 1170,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "search_generic_code",
+     "calls": 3,
+     "errors": 0,
+     "p50Ms": 1653,
+     "p95Ms": 1666,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "fetch_generic_documentation",
+     "calls": 2,
+     "errors": 0,
+     "p50Ms": 4632,
+     "p95Ms": 44420,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "match_common_libs_owner_repo_mapping",
+     "calls": 2,
+     "errors": 0,
+     "p50Ms": 190,
+     "p95Ms": 197,
+     "origin": "mcp",
+     "pending": 0
+    }
+   ],
+   "errors": [],
+   "planes": {
+    "mcp": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "gitmcp-io",
+      "kind": "mcp",
+      "startedAt": "2026-08-20T00:02:42.466Z",
+      "endedAt": "2026-08-20T00:17:06.851Z",
+      "durationMs": 864385,
+      "command": [
+       "fitness-report",
+       "https://gitmcp.io/docs"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 204,
+       "meta": 1,
+       "message": 76,
+       "event": 126,
+       "turn": 0,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": null,
+     "tools": [
+      {
+       "name": "search_generic_documentation",
+       "calls": 20,
+       "errors": 0,
+       "p50Ms": 8487,
+       "p95Ms": 48511,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "fetch_generic_url_content",
+       "calls": 6,
+       "errors": 0,
+       "p50Ms": 457,
+       "p95Ms": 1170,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "search_generic_code",
+       "calls": 3,
+       "errors": 0,
+       "p50Ms": 1653,
+       "p95Ms": 1666,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "fetch_generic_documentation",
+       "calls": 2,
+       "errors": 0,
+       "p50Ms": 4632,
+       "p95Ms": 44420,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "match_common_libs_owner_repo_mapping",
+       "calls": 2,
+       "errors": 0,
+       "p50Ms": 190,
+       "p95Ms": 197,
+       "origin": "mcp",
+       "pending": 0
+      }
+     ],
+     "errors": []
+    },
+    "agent": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "gitmcp-io",
+      "kind": "llm",
+      "startedAt": "2026-08-20T00:02:42.466Z",
+      "endedAt": "2026-08-20T00:17:06.880Z",
+      "durationMs": 864414,
+      "command": [
+       "fitness-report",
+       "https://gitmcp.io/docs"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 148,
+       "meta": 1,
+       "message": 0,
+       "event": 0,
+       "turn": 146,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": {
+      "perModel": [
+       {
+        "model": "claude-sonnet-5",
+        "calls": 68,
+        "inputTokens": 216615,
+        "outputTokens": 10505,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": 0,
+        "thinkingTokens": null,
+        "thinkingEstimated": false,
+        "cacheHitRate": 0,
+        "ttftP50Ms": null,
+        "ttftP95Ms": null,
+        "estCostUsd": 0.53828,
+        "priced": true
+       }
+      ],
+      "summary": {
+       "models": 1,
+       "assistantTurns": 68,
+       "turns": 146,
+       "echoedTurns": 0,
+       "inputTokens": 216615,
+       "outputTokens": 10505,
+       "cacheReadTokens": 0,
+       "cacheCreationTokens": 0,
+       "thinkingExactTokens": null,
+       "thinkingEstimatedTokens": null,
+       "cacheHitRate": 0,
+       "totalModelTimeMs": null
+      },
+      "cost": {
+       "estimated": true,
+       "currency": "USD",
+       "totalUsd": 0.53828,
+       "partial": false,
+       "unpricedModels": [],
+       "asOf": "2026-08-19",
+       "source": "bundled"
+      }
+     },
+     "tools": [
+      {
+       "name": "search_generic_documentation",
+       "calls": 26,
+       "errors": 0,
+       "p50Ms": 2665,
+       "p95Ms": 26766,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "fetch_generic_documentation",
+       "calls": 8,
+       "errors": 0,
+       "p50Ms": 0,
+       "p95Ms": 7052,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "fetch_generic_url_content",
+       "calls": 6,
+       "errors": 0,
+       "p50Ms": 3683,
+       "p95Ms": 5955,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "search_generic_code",
+       "calls": 6,
+       "errors": 0,
+       "p50Ms": 1,
+       "p95Ms": 4653,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "match_common_libs_owner_repo_mapping",
+       "calls": 2,
+       "errors": 0,
+       "p50Ms": 2151,
+       "p95Ms": 2290,
+       "origin": "turn",
+       "pending": 0
+      }
+     ],
+     "errors": []
+    }
+   },
+   "toolsPlane": "mcp"
+  },
+  "methods": [
+   "Construct gate denominator diverges from evalgate: reference-agent errors count, and an error rate above 5% resolves to COMPROMISED rather than silently shrinking n.",
+   "A published PASS additionally requires the Wilson 95% lower bound to clear the threshold, or an n the design was sized for. Otherwise the verdict downgrades to EXTEND.",
+   "Destructive-without-confirmation, v0 rule: a tool is destructive unless it declares readOnlyHint true or destructiveHint false, and every executed call to such a tool counts. The only thing that clears one is recorded evidence that the server asked about that same tool before that same call ran. Confirmation is never inherited from another tool or from elsewhere in the task.",
+   "Construct gate: the reference agent is told the answer, so a text check alone would pass against a dead server. A reference pass counts only when it also landed a successful call on a tool the task expects.",
+   "Multi-round tool input (MRTR) is recorded and then declined in v0. A server that asks for input gets an mrtr-abandoned datum, never a fabricated answer.",
+   "Each task runs under an advisory task budget, so a trapping server yields budget exhausted as a clean unrecoverable-path datum rather than an unbounded bill.",
+   "Prior art: MCPEval for generated task suites, evalgate for the gate math, mcp-tape for the recording format. Our delta is refusal, signed replays, and causal rewrite diffs.",
+   "Task suite generated by fitness-report-generator/2 (judge claude-opus-5). v1 and v2 suites are different measurements and are never merged in one leaderboard column.",
+   "Task candidates are screened at generation time with a single no-tools probe on the runner model. Candidates the cold model answers correctly are deleted before any gate runs, with the reason recorded. The run-time null baseline therefore measures the noise floor of a null-screened suite, not of an arbitrary suite, and is biased downward by construction.",
+   "The screen simulates one of the three null models the gate uses, weakly and with a single sample. It never removes a task from the gate denominator and never changes a gate threshold; the null_baseline rule, its 0.5 ratio and its 95th percentile are unchanged from v1.",
+   "The share of generated candidates the screen deleted is published per server.",
+   "Null screen on this server: 0 of 0 screened candidates were answerable with no server at all.",
+   "Screen spend is not on either tape. The screen made 0 runner-model calls (0 input and 0 output tokens) before the suite existed, so trace_stats cannot see them and any measured cost figure for this run excludes them. The counts are published in the synthesis ledger instead of being dropped."
+  ]
+ },
+ {
+  "schema": "fitness-report/1",
+  "server": {
+   "url": "https://gitmcp.io/docs",
+   "slug": "gitmcp-io",
+   "era": "legacy",
+   "negotiatedVersion": "2025-03-26",
+   "serverInfo": {
+    "name": "GitMCP",
+    "version": "1.1.0"
+   },
+   "instructions": null,
+   "capabilities": {
+    "tools": {
+     "listChanged": true
+    }
+   },
+   "transportShape": "sse",
+   "sessionful": true,
+   "credentialContext": "anonymous"
+  },
+  "run": {
    "id": "gitmcp-io-2026-08-19T21-26-37-136Z",
    "startedAt": "2026-08-19T21:26:37.136Z",
    "harnessVersion": "0.1.0",
@@ -7569,6 +9077,1080 @@
    "Multi-round tool input (MRTR) is recorded and then declined in v0. A server that asks for input gets an mrtr-abandoned datum, never a fabricated answer.",
    "Each task runs under an advisory task budget, so a trapping server yields budget exhausted as a clean unrecoverable-path datum rather than an unbounded bill.",
    "Prior art: MCPEval for generated task suites, evalgate for the gate math, mcp-tape for the recording format. Our delta is refusal, signed replays, and causal rewrite diffs."
+  ]
+ },
+ {
+  "schema": "fitness-report/1",
+  "server": {
+   "url": "https://mcp.svelte.dev/mcp",
+   "slug": "mcp-svelte-dev",
+   "era": "modern",
+   "negotiatedVersion": "2026-07-28",
+   "serverInfo": {
+    "name": "Svelte MCP",
+    "icons": [
+     {
+      "src": "https://mcp.svelte.dev/logo.svg",
+      "mimeType": "image/svg+xml"
+     },
+     {
+      "src": "https://mcp.svelte.dev/logo.png",
+      "mimeType": "image/png"
+     },
+     {
+      "src": "data:image/png;base64,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",
+      "mimeType": "image/png"
+     }
+    ],
+    "version": "0.0.1",
+    "websiteUrl": "https://mcp.svelte.dev",
+    "description": "The official Svelte MCP server implementation"
+   },
+   "instructions": "This is the official Svelte MCP server. It MUST be used whenever svelte development is involved. It can provide official documentation, code examples and correct your code. After you correct the component call this tool again to confirm all the issues are fixed.",
+   "capabilities": {
+    "completions": {},
+    "prompts": {},
+    "resources": {},
+    "tools": {}
+   },
+   "transportShape": "sse",
+   "sessionful": false,
+   "credentialContext": "anonymous",
+   "discover": {
+    "_meta": {
+     "io.modelcontextprotocol/serverInfo": {
+      "name": "Svelte MCP",
+      "icons": [
+       {
+        "src": "https://mcp.svelte.dev/logo.svg",
+        "mimeType": "image/svg+xml"
+       },
+       {
+        "src": "https://mcp.svelte.dev/logo.png",
+        "mimeType": "image/png"
+       },
+       {
+        "src": "data:image/png;base64,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",
+        "mimeType": "image/png"
+       }
+      ],
+      "version": "0.0.1",
+      "websiteUrl": "https://mcp.svelte.dev",
+      "description": "The official Svelte MCP server implementation"
+     }
+    },
+    "ttlMs": 0,
+    "cacheScope": "private",
+    "supportedVersions": [
+     "2026-07-28"
+    ],
+    "capabilities": {
+     "completions": {},
+     "prompts": {},
+     "resources": {},
+     "tools": {}
+    },
+    "instructions": "This is the official Svelte MCP server. It MUST be used whenever svelte development is involved. It can provide official documentation, code examples and correct your code. After you correct the component call this tool again to confirm all the issues are fixed.",
+    "resultType": "complete"
+   }
+  },
+  "run": {
+   "id": "mcp-svelte-dev-2026-08-19T23-51-53-742Z",
+   "startedAt": "2026-08-19T23:51:53.742Z",
+   "harnessVersion": "0.1.0",
+   "runnerModel": "claude-sonnet-5",
+   "judgeModel": "claude-opus-5",
+   "suiteHash": "edd899c81df3a8f6b615bec5436fe04d40b63a7ca7620c2a0ab64996c73b97f1",
+   "taskBudget": 20000,
+   "generatorVersion": "fitness-report-generator/2",
+   "nullScreenEnabled": true
+  },
+  "probes": {
+   "specCurrency": "2026-07-28",
+   "findings": [
+    {
+     "id": "spec-currency",
+     "pass": true,
+     "detail": "negotiated 2026-07-28 (modern era, >= 2026-07-28)",
+     "evidence": {
+      "negotiatedVersion": "2026-07-28",
+      "era": "modern"
+     }
+    },
+    {
+     "id": "bogus-version-accepted",
+     "pass": true,
+     "detail": "counter-offered 2025-06-18 instead of the bogus 1999-01-01",
+     "evidence": {
+      "status": 200,
+      "offered": "1999-01-01",
+      "envelope": {
+       "jsonrpc": "2.0",
+       "id": "fitness-probe-bogus-version",
+       "result": {
+        "protocolVersion": "2025-06-18",
+        "adapter": {},
+        "capabilities": {
+         "tools": {},
+         "prompts": {},
+         "resources": {},
+         "completions": {}
+        },
+        "instructions": "This is the official Svelte MCP server. It MUST be used whenever svelte development is involved. It can provide official documentation, code examples and correct your code. After you correct the component call this tool again to confirm all the issues are fixed.",
+        "serverInfo": {
+         "name": "Svelte MCP",
+         "version": "0.0.1",
+         "description": "The official Svelte MCP server implementation",
+         "websiteUrl": "https://mcp.svelte.dev",
+         "icons": [
+          {
+           "src": "https://mcp.svelte.dev/logo.svg",
+           "mimeType": "image/svg+xml"
+          },
+          {
+           "src": "https://mcp.svelte.dev/logo.png",
+           "mimeType": "image/png"
+          },
+          {
+           "src": "data:image/png;base64,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",
+           "mimeType": "image/png"
+          }
+         ]
+        }
+       }
+      },
+      "answeredVersion": "2025-06-18"
+     }
+    },
+    {
+     "id": "header-mismatch-accepted",
+     "pass": true,
+     "detail": "rejected the mismatched Mcp-Name with HTTP 400 / JSON-RPC -32020, as SEP-2243 requires",
+     "evidence": {
+      "status": 400,
+      "jsonRpcErrorCode": -32020,
+      "headerName": "__fitness_report_mismatched_name__",
+      "bodyName": "__fitness_report_probe_tool__",
+      "envelope": {
+       "jsonrpc": "2.0",
+       "id": "fitness-probe-header-mismatch",
+       "error": {
+        "code": -32020,
+        "message": "MCP error -32020: Header mismatch: Mcp-Name does not match params.name"
+       }
+      }
+     }
+    },
+    {
+     "id": "server-discover-present",
+     "pass": true,
+     "detail": "server/discover answered with supportedVersions [2026-07-28]",
+     "evidence": {
+      "supportedVersions": [
+       "2026-07-28"
+      ],
+      "capabilities": {
+       "completions": {},
+       "prompts": {},
+       "resources": {},
+       "tools": {}
+      },
+      "hasInstructions": true
+     }
+    },
+    {
+     "id": "cache-hints",
+     "pass": true,
+     "detail": "tools/list cache hints: ttlMs=0, cacheScope=private",
+     "evidence": {
+      "ttlMs": 0,
+      "cacheScope": "private",
+      "credentialContext": "anonymous"
+     }
+    },
+    {
+     "id": "deprecation-surface",
+     "pass": true,
+     "detail": "no deleted or deprecated surface advertised",
+     "evidence": {
+      "deletedVocabulary": [],
+      "notes": [],
+      "toolCount": 4,
+      "era": "modern"
+     }
+    }
+   ]
+  },
+  "gates": {
+   "order": [
+    "protocol_hygiene",
+    "structural",
+    "answer_leak",
+    "suite_size",
+    "plan_power",
+    "construct",
+    "null_baseline"
+   ],
+   "records": [
+    {
+     "gate": "protocol_hygiene",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "note": "Protocol hygiene is a reported column, not a refusal. A hygiene failure is a fact about the server, not evidence that this eval is invalid.",
+      "failed": []
+     }
+    },
+    {
+     "gate": "structural",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nRequested": 24,
+      "nGenerated": 12,
+      "nHolding": 12,
+      "admissionRate": 0.5,
+      "holdRate": 1,
+      "minAdmissionRate": 0.25,
+      "minGenerated": 8,
+      "failures": [],
+      "ok": true,
+      "reason": "ok",
+      "explain": "OK: 12/12 admitted cases hold, admission rate 50.0%. Necessary, not sufficient: run the construct gate.",
+      "synthesis": {
+       "suiteHash": "edd899c81df3a8f6b615bec5436fe04d40b63a7ca7620c2a0ab64996c73b97f1",
+       "generatorVersion": "fitness-report-generator/2",
+       "generatorModel": "claude-opus-5",
+       "yield": {
+        "emitted": 24,
+        "rewritten": 0,
+        "candidates": 24,
+        "entriesDiscarded": 0,
+        "admitted": 12,
+        "trimmed": 2,
+        "admissionRate": 0.5,
+        "reconciles": true,
+        "shortfall": 0,
+        "minTasks": 8,
+        "insufficient": false
+       },
+       "dropsByRule": {
+        "invalid-check": 10
+       },
+       "nullScreen": {
+        "enabled": true,
+        "model": "claude-sonnet-5",
+        "screened": 2,
+        "dropped": 0,
+        "errors": 0,
+        "inputTokens": 316,
+        "outputTokens": 409
+       },
+       "repairs": 0,
+       "leaksAtGeneration": 0,
+       "regenerationAttempted": false,
+       "failure": null,
+       "detail": "full ledger in suite-meta.json"
+      },
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 2,
+      "note": "nRequested is the candidate count the generator actually put through validation. Generator fitness-report-generator/2: v1 and v2 admission rates are not comparable and must never share a table."
+     }
+    },
+    {
+     "gate": "answer_leak",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "leaks": [],
+      "regenerationAttempted": false,
+      "leaksFoundAtGeneration": [],
+      "corpus": [
+       "rendered prompt",
+       "bound params",
+       "server instructions",
+       "tool descriptions"
+      ],
+      "contextLeakDropsAtGeneration": 0
+     }
+    },
+    {
+     "gate": "suite_size",
+     "ok": true,
+     "costTier": "free",
+     "reason": "ok",
+     "detail": {
+      "nTasks": 12,
+      "minTasks": 8,
+      "toolCount": 4,
+      "nullScreenDropped": 0,
+      "nullScreenScreened": 2,
+      "note": "With a median of 2.5 tools on the open roster, a suite below 8 tasks cannot separate a good server from a lucky one. This refuses rather than publishing a 2-task 100 percent."
+     }
+    },
+    {
+     "gate": "plan_power",
+     "ok": true,
+     "costTier": "free",
+     "reason": "underpowered_recorded",
+     "detail": {
+      "requiredN": 78,
+      "actualN": 12,
+      "threshold": 0.9,
+      "detectableRate": 0.8,
+      "power": 0.808179164040748,
+      "note": "This does not refuse. It is why a raw PASS below the planned n downgrades to EXTEND under the published-verdict rule."
+     }
+    },
+    {
+     "gate": "construct",
+     "ok": true,
+     "costTier": "paid",
+     "verdict": {
+      "outcome": "PASS",
+      "k": 12,
+      "n": 12,
+      "threshold": 0.9,
+      "alpha": 0.05,
+      "pValue": 1
+     },
+     "reason": "ok",
+     "detail": {
+      "n": 12,
+      "nIntended": 12,
+      "rate": 1,
+      "errors": 0,
+      "errorRate": 0,
+      "maxErrorRate": 0.05,
+      "compromised": false,
+      "reps": 1,
+      "published": {
+       "outcome": "EXTEND",
+       "k": 12,
+       "n": 12,
+       "threshold": 0.9,
+       "alpha": 0.05,
+       "pValue": 1,
+       "rawOutcome": "PASS",
+       "downgraded": true,
+       "wilsonLow": 0.7574992425007574,
+       "wilsonHigh": 1,
+       "requiredN": 78,
+       "achievedPower": 0.20543105023999975,
+       "detectableRate": 0.8,
+       "reason": "downgraded_underpowered"
+      },
+      "constructOracle": "A reference pass counts only when it both satisfied the check and landed a successful call on a tool the task expects. The reference agent is given the answer key, so a text check alone would pass against a server that returned nothing.",
+      "note": "One rep per task in v0, for cost. evalgate runs three; the divergence is recorded here rather than hidden."
+     }
+    },
+    {
+     "gate": "null_baseline",
+     "ok": true,
+     "costTier": "cheap",
+     "reason": "ok",
+     "detail": {
+      "tNull": 0,
+      "tAblate": 0.75,
+      "killThreshold": 0.375,
+      "outcome": "PROCEED",
+      "halts": false,
+      "ok": true,
+      "reason": "ok",
+      "rates": [
+       {
+        "label": "no-tools",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "stubbed-empty",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       },
+       {
+        "label": "random-valid-args",
+        "k": 0,
+        "n": 12,
+        "rate": 0
+       }
+      ],
+      "percentile": 95,
+      "ratio": 0.5,
+      "signalSource": "first-try success on the scored drive",
+      "measuredBeforePaidTier": true,
+      "decidedAfter": "drive",
+      "explain": "OK: noise floor 0.000 is below the 0.5 kill threshold of 0.375 against signal 0.750."
+     }
+    }
+   ],
+   "extensionPolicy": {
+    "extensionSize": 0,
+    "maxExtensions": 0
+   },
+   "refusedAt": null
+  },
+  "outcome": "SCORED",
+  "score": {
+   "runnerModel": "claude-sonnet-5",
+   "firstTrySuccess": {
+    "rate": 0.75,
+    "low": 0.46768966087934005,
+    "high": 0.9110599603710386,
+    "k": 9,
+    "n": 12
+   },
+   "eventualSuccess": {
+    "rate": 0.8333333333333334,
+    "low": 0.5519636426153274,
+    "high": 0.9530358523851776,
+    "k": 10,
+    "n": 12
+   },
+   "meanCallsPerCompletedTask": 1.7,
+   "meanTokensPerCompletedTask": 13872.4,
+   "meanCostPerCompletedTaskUsd": 0.0341292,
+   "tools": [
+    {
+     "tool": "get-documentation",
+     "calls": 10,
+     "errors": 0,
+     "failureClasses": {},
+     "p50Ms": 224,
+     "p95Ms": 350,
+     "declaredDestructive": false,
+     "inferredDestructive": null
+    },
+    {
+     "tool": "svelte-autofixer",
+     "calls": 4,
+     "errors": 0,
+     "failureClasses": {},
+     "p50Ms": 240,
+     "p95Ms": 294,
+     "declaredDestructive": false,
+     "inferredDestructive": null
+    },
+    {
+     "tool": "playground-link",
+     "calls": 3,
+     "errors": 1,
+     "failureClasses": {
+      "execution-error-recovered": 1
+     },
+     "p50Ms": 130,
+     "p95Ms": 178,
+     "declaredDestructive": false,
+     "inferredDestructive": null
+    },
+    {
+     "tool": "list-sections",
+     "calls": 2,
+     "errors": 0,
+     "failureClasses": {},
+     "p50Ms": 306,
+     "p95Ms": 308,
+     "declaredDestructive": false,
+     "inferredDestructive": null
+    }
+   ],
+   "tasks": [
+    {
+     "taskId": "autofix-nonreactive-tally",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 5051,
+     "outputTokens": 335,
+     "costUsd": 0.013452,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "minted-playground-step-counter",
+     "firstTrySuccess": false,
+     "success": true,
+     "toolCalls": 3,
+     "mrtrRounds": 0,
+     "inputTokens": 11693,
+     "outputTokens": 1207,
+     "costUsd": 0.035456,
+     "failure": "execution-error-recovered",
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "playground-tailwind-card-after-fix",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 3,
+     "mrtrRounds": 0,
+     "inputTokens": 13589,
+     "outputTokens": 1777,
+     "costUsd": 0.044948,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-output-preload-strategy",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 20068,
+     "outputTokens": 164,
+     "costUsd": 0.041776,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-spring-set-option",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 8849,
+     "outputTokens": 309,
+     "costUsd": 0.020788,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-css-hash-option",
+     "firstTrySuccess": false,
+     "success": false,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 17154,
+     "outputTokens": 532,
+     "costUsd": 0.039628,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-node-adapter-proxy-env",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 2,
+     "mrtrRounds": 0,
+     "inputTokens": 37240,
+     "outputTokens": 273,
+     "costUsd": 0.07721,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-service-worker-exports",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 2,
+     "mrtrRounds": 0,
+     "inputTokens": 12312,
+     "outputTokens": 560,
+     "costUsd": 0.030223999999999997,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-snapshot-capture-restore",
+     "firstTrySuccess": false,
+     "success": false,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 17021,
+     "outputTokens": 374,
+     "costUsd": 0.037781999999999996,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-inspect-trace-variant",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 5584,
+     "outputTokens": 360,
+     "costUsd": 0.014768,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-attachment-key-export",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 2,
+     "mrtrRounds": 0,
+     "inputTokens": 8271,
+     "outputTokens": 399,
+     "costUsd": 0.020531999999999998,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    },
+    {
+     "taskId": "doc-csp-config-fields",
+     "firstTrySuccess": true,
+     "success": true,
+     "toolCalls": 1,
+     "mrtrRounds": 0,
+     "inputTokens": 20034,
+     "outputTokens": 207,
+     "costUsd": 0.042138,
+     "failure": null,
+     "destructiveWithoutConfirmation": 0
+    }
+   ],
+   "destructiveWithoutConfirmation": 0,
+   "ambiguousParameters": [],
+   "schemaDrift": {
+    "checked": false,
+    "drifted": false,
+    "detail": null
+   },
+   "toolSurfaceDeltaByCredential": null
+  },
+  "traceLinks": {
+   "mcp": "https://fitnessreport.dev/traces/mcp-svelte-dev-2026-08-19T23-51-53-742Z/mcp.jsonl",
+   "agent": "https://fitnessreport.dev/traces/mcp-svelte-dev-2026-08-19T23-51-53-742Z/agent.jsonl",
+   "viewer": "https://mcpreplay.dev/?trace=https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fmcp-svelte-dev-2026-08-19T23-51-53-742Z%2Fmcp.jsonl;https%3A%2F%2Ffitnessreport.dev%2Ftraces%2Fmcp-svelte-dev-2026-08-19T23-51-53-742Z%2Fagent.jsonl#view=calls"
+  },
+  "trace_stats": {
+   "schema": "mcp-tape.stats/1",
+   "file": null,
+   "session": {
+    "label": "mcp-svelte-dev",
+    "kind": "mcp+llm",
+    "startedAt": "2026-08-19T23:51:53.742Z",
+    "endedAt": "2026-08-20T00:02:38.516Z",
+    "durationMs": 644774,
+    "command": [
+     "fitness-report",
+     "https://mcp.svelte.dev/mcp"
+    ],
+    "producer": "fitness-report@0.1.0",
+    "records": {
+     "total": 471,
+     "meta": 2,
+     "message": 130,
+     "event": 126,
+     "turn": 211,
+     "end": 2,
+     "other": 0
+    },
+    "skippedLines": 0,
+    "endReason": "eval_complete",
+    "exitCode": null
+   },
+   "models": {
+    "perModel": [
+     {
+      "model": "claude-sonnet-5",
+      "calls": 100,
+      "inputTokens": 482262,
+      "outputTokens": 19844,
+      "cacheReadTokens": 0,
+      "cacheCreationTokens": 0,
+      "thinkingTokens": null,
+      "thinkingEstimated": false,
+      "cacheHitRate": 0,
+      "ttftP50Ms": null,
+      "ttftP95Ms": null,
+      "estCostUsd": 1.162964,
+      "priced": true
+     }
+    ],
+    "summary": {
+     "models": 1,
+     "assistantTurns": 100,
+     "turns": 211,
+     "echoedTurns": 0,
+     "inputTokens": 482262,
+     "outputTokens": 19844,
+     "cacheReadTokens": 0,
+     "cacheCreationTokens": 0,
+     "thinkingExactTokens": null,
+     "thinkingEstimatedTokens": null,
+     "cacheHitRate": 0,
+     "totalModelTimeMs": null
+    },
+    "cost": {
+     "estimated": true,
+     "currency": "USD",
+     "totalUsd": 1.162964,
+     "partial": false,
+     "unpricedModels": [],
+     "asOf": "2026-08-19",
+     "source": "bundled"
+    }
+   },
+   "tools": [
+    {
+     "name": "get-documentation",
+     "calls": 29,
+     "errors": 0,
+     "p50Ms": 224,
+     "p95Ms": 467,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "list-sections",
+     "calls": 11,
+     "errors": 0,
+     "p50Ms": 223,
+     "p95Ms": 665,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "svelte-autofixer",
+     "calls": 11,
+     "errors": 3,
+     "p50Ms": 240,
+     "p95Ms": 489,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "playground-link",
+     "calls": 8,
+     "errors": 4,
+     "p50Ms": 127,
+     "p95Ms": 524,
+     "origin": "mcp",
+     "pending": 0
+    },
+    {
+     "name": "__fitness_report_probe_tool__",
+     "calls": 1,
+     "errors": 1,
+     "p50Ms": 108,
+     "p95Ms": 108,
+     "origin": "mcp",
+     "pending": 0
+    }
+   ],
+   "errors": [
+    {
+     "t": "2026-08-19T23:51:54.564Z",
+     "source": "tool",
+     "name": "__fitness_report_probe_tool__",
+     "message": "MCP error -32020: Header mismatch: Mcp-Name does not match params.name (code -32020)"
+    },
+    {
+     "t": "2026-08-19T23:59:22.881Z",
+     "source": "tool",
+     "name": "svelte-autofixer",
+     "message": "The desired_svelte_version MUST be either 4 or 5 but received \"q2\""
+    },
+    {
+     "t": "2026-08-19T23:59:23.283Z",
+     "source": "tool",
+     "name": "svelte-autofixer",
+     "message": "The desired_svelte_version MUST be either 4 or 5 but received \"q981\""
+    },
+    {
+     "t": "2026-08-19T23:59:23.398Z",
+     "source": "tool",
+     "name": "playground-link",
+     "message": "The files must contain an App.svelte file as the entry point"
+    },
+    {
+     "t": "2026-08-19T23:59:23.924Z",
+     "source": "tool",
+     "name": "svelte-autofixer",
+     "message": "The desired_svelte_version MUST be either 4 or 5 but received \"q720\""
+    },
+    {
+     "t": "2026-08-19T23:59:24.041Z",
+     "source": "tool",
+     "name": "playground-link",
+     "message": "The files must contain an App.svelte file as the entry point"
+    },
+    {
+     "t": "2026-08-19T23:59:35.894Z",
+     "source": "tool",
+     "name": "playground-link",
+     "message": "The files must contain an App.svelte file as the entry point"
+    },
+    {
+     "t": "2026-08-20T00:01:12.373Z",
+     "source": "tool",
+     "name": "playground-link",
+     "message": "The files must contain an App.svelte file as the entry point"
+    }
+   ],
+   "planes": {
+    "mcp": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "mcp-svelte-dev",
+      "kind": "mcp",
+      "startedAt": "2026-08-19T23:51:53.742Z",
+      "endedAt": "2026-08-20T00:02:38.500Z",
+      "durationMs": 644758,
+      "command": [
+       "fitness-report",
+       "https://mcp.svelte.dev/mcp"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 258,
+       "meta": 1,
+       "message": 130,
+       "event": 126,
+       "turn": 0,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": null,
+     "tools": [
+      {
+       "name": "get-documentation",
+       "calls": 29,
+       "errors": 0,
+       "p50Ms": 224,
+       "p95Ms": 467,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "list-sections",
+       "calls": 11,
+       "errors": 0,
+       "p50Ms": 223,
+       "p95Ms": 665,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "svelte-autofixer",
+       "calls": 11,
+       "errors": 3,
+       "p50Ms": 240,
+       "p95Ms": 489,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "playground-link",
+       "calls": 8,
+       "errors": 4,
+       "p50Ms": 127,
+       "p95Ms": 524,
+       "origin": "mcp",
+       "pending": 0
+      },
+      {
+       "name": "__fitness_report_probe_tool__",
+       "calls": 1,
+       "errors": 1,
+       "p50Ms": 108,
+       "p95Ms": 108,
+       "origin": "mcp",
+       "pending": 0
+      }
+     ],
+     "errors": [
+      {
+       "t": "2026-08-19T23:51:54.564Z",
+       "source": "tool",
+       "name": "__fitness_report_probe_tool__",
+       "message": "MCP error -32020: Header mismatch: Mcp-Name does not match params.name (code -32020)"
+      },
+      {
+       "t": "2026-08-19T23:59:22.881Z",
+       "source": "tool",
+       "name": "svelte-autofixer",
+       "message": "The desired_svelte_version MUST be either 4 or 5 but received \"q2\""
+      },
+      {
+       "t": "2026-08-19T23:59:23.283Z",
+       "source": "tool",
+       "name": "svelte-autofixer",
+       "message": "The desired_svelte_version MUST be either 4 or 5 but received \"q981\""
+      },
+      {
+       "t": "2026-08-19T23:59:23.398Z",
+       "source": "tool",
+       "name": "playground-link",
+       "message": "The files must contain an App.svelte file as the entry point"
+      },
+      {
+       "t": "2026-08-19T23:59:23.924Z",
+       "source": "tool",
+       "name": "svelte-autofixer",
+       "message": "The desired_svelte_version MUST be either 4 or 5 but received \"q720\""
+      },
+      {
+       "t": "2026-08-19T23:59:24.041Z",
+       "source": "tool",
+       "name": "playground-link",
+       "message": "The files must contain an App.svelte file as the entry point"
+      },
+      {
+       "t": "2026-08-19T23:59:35.894Z",
+       "source": "tool",
+       "name": "playground-link",
+       "message": "The files must contain an App.svelte file as the entry point"
+      },
+      {
+       "t": "2026-08-20T00:01:12.373Z",
+       "source": "tool",
+       "name": "playground-link",
+       "message": "The files must contain an App.svelte file as the entry point"
+      }
+     ]
+    },
+    "agent": {
+     "schema": "mcp-tape.stats/1",
+     "file": null,
+     "session": {
+      "label": "mcp-svelte-dev",
+      "kind": "llm",
+      "startedAt": "2026-08-19T23:51:53.742Z",
+      "endedAt": "2026-08-20T00:02:38.516Z",
+      "durationMs": 644774,
+      "command": [
+       "fitness-report",
+       "https://mcp.svelte.dev/mcp"
+      ],
+      "producer": "fitness-report@0.1.0",
+      "records": {
+       "total": 213,
+       "meta": 1,
+       "message": 0,
+       "event": 0,
+       "turn": 211,
+       "end": 1,
+       "other": 0
+      },
+      "skippedLines": 0,
+      "endReason": "eval_complete",
+      "exitCode": null
+     },
+     "models": {
+      "perModel": [
+       {
+        "model": "claude-sonnet-5",
+        "calls": 100,
+        "inputTokens": 482262,
+        "outputTokens": 19844,
+        "cacheReadTokens": 0,
+        "cacheCreationTokens": 0,
+        "thinkingTokens": null,
+        "thinkingEstimated": false,
+        "cacheHitRate": 0,
+        "ttftP50Ms": null,
+        "ttftP95Ms": null,
+        "estCostUsd": 1.162964,
+        "priced": true
+       }
+      ],
+      "summary": {
+       "models": 1,
+       "assistantTurns": 100,
+       "turns": 211,
+       "echoedTurns": 0,
+       "inputTokens": 482262,
+       "outputTokens": 19844,
+       "cacheReadTokens": 0,
+       "cacheCreationTokens": 0,
+       "thinkingExactTokens": null,
+       "thinkingEstimatedTokens": null,
+       "cacheHitRate": 0,
+       "totalModelTimeMs": null
+      },
+      "cost": {
+       "estimated": true,
+       "currency": "USD",
+       "totalUsd": 1.162964,
+       "partial": false,
+       "unpricedModels": [],
+       "asOf": "2026-08-19",
+       "source": "bundled"
+      }
+     },
+     "tools": [
+      {
+       "name": "get-documentation",
+       "calls": 30,
+       "errors": 0,
+       "p50Ms": 2268,
+       "p95Ms": 6106,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "list-sections",
+       "calls": 14,
+       "errors": 0,
+       "p50Ms": 1734,
+       "p95Ms": 4729,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "svelte-autofixer",
+       "calls": 12,
+       "errors": 0,
+       "p50Ms": 2766,
+       "p95Ms": 8177,
+       "origin": "turn",
+       "pending": 0
+      },
+      {
+       "name": "playground-link",
+       "calls": 7,
+       "errors": 2,
+       "p50Ms": 4618,
+       "p95Ms": 6645,
+       "origin": "turn",
+       "pending": 0
+      }
+     ],
+     "errors": [
+      {
+       "t": "2026-08-19T23:59:35.894Z",
+       "source": "tool",
+       "name": "playground-link",
+       "message": "The files must contain an App.svelte file as the entry point"
+      },
+      {
+       "t": "2026-08-20T00:01:12.373Z",
+       "source": "tool",
+       "name": "playground-link",
+       "message": "The files must contain an App.svelte file as the entry point"
+      }
+     ]
+    }
+   },
+   "toolsPlane": "mcp"
+  },
+  "methods": [
+   "Construct gate denominator diverges from evalgate: reference-agent errors count, and an error rate above 5% resolves to COMPROMISED rather than silently shrinking n.",
+   "A published PASS additionally requires the Wilson 95% lower bound to clear the threshold, or an n the design was sized for. Otherwise the verdict downgrades to EXTEND.",
+   "Destructive-without-confirmation, v0 rule: a tool is destructive unless it declares readOnlyHint true or destructiveHint false, and every executed call to such a tool counts. The only thing that clears one is recorded evidence that the server asked about that same tool before that same call ran. Confirmation is never inherited from another tool or from elsewhere in the task.",
+   "Construct gate: the reference agent is told the answer, so a text check alone would pass against a dead server. A reference pass counts only when it also landed a successful call on a tool the task expects.",
+   "Multi-round tool input (MRTR) is recorded and then declined in v0. A server that asks for input gets an mrtr-abandoned datum, never a fabricated answer.",
+   "Each task runs under an advisory task budget, so a trapping server yields budget exhausted as a clean unrecoverable-path datum rather than an unbounded bill.",
+   "Prior art: MCPEval for generated task suites, evalgate for the gate math, mcp-tape for the recording format. Our delta is refusal, signed replays, and causal rewrite diffs.",
+   "Task suite generated by fitness-report-generator/2 (judge claude-opus-5). v1 and v2 suites are different measurements and are never merged in one leaderboard column.",
+   "Task candidates are screened at generation time with a single no-tools probe on the runner model. Candidates the cold model answers correctly are deleted before any gate runs, with the reason recorded. The run-time null baseline therefore measures the noise floor of a null-screened suite, not of an arbitrary suite, and is biased downward by construction.",
+   "The screen simulates one of the three null models the gate uses, weakly and with a single sample. It never removes a task from the gate denominator and never changes a gate threshold; the null_baseline rule, its 0.5 ratio and its 95th percentile are unchanged from v1.",
+   "The share of generated candidates the screen deleted is published per server.",
+   "Null screen on this server: 0 of 2 screened candidates were answerable with no server at all.",
+   "Screen spend is not on either tape. The screen made 2 runner-model calls (316 input and 409 output tokens) before the suite existed, so trace_stats cannot see them and any measured cost figure for this run excludes them. The counts are published in the synthesis ledger instead of being dropped."
   ]
  },
  {
