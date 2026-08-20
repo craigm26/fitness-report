@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-20T17:20:36.982Z","label":"mcp-better-auth-com","command":["fitness-report","https://mcp.better-auth.com/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"abf127fd9202b6d15c663252bc273b7cdd5570742f6b70b9ebf3b90b41487717"}}
+{"t":"2026-08-20T17:23:47.053Z","type":"end","reason":"eval_complete","durationMs":190071}

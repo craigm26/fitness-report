@@ -5,370 +5,427 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fitness Report leaderboard</title>
 <meta name="description" content="Can an agent actually get the job done with your MCP server? Scored runs, refusals when the eval itself is invalid, and a replayable recording behind every finding.">
+<meta name="color-scheme" content="light dark">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<a class="skip" href="#leaderboard">Skip to the leaderboard</a>
+<a class="skip" href="#leaderboard">Skip to the board</a>
 
+<!-- ZONE A: the masthead. The thesis is the product, so it is the largest type
+     on the page and the count that proves it sits directly under it. -->
 <header class="masthead">
   <div class="wrap">
     <p class="eyebrow">fitness-report / 1</p>
-    <h1>Fitness Report</h1>
+    <p class="wordmark">Fitness&nbsp;Report</p>
+    <h1 class="thesis">A leaderboard you can trust must be able to say: this measurement was not valid.</h1>
+    <p class="thesis-count" id="thesis-count">Counting the published runs.</p>
     <p class="lede">
       Find out whether agents can actually drive your MCP server before your customers do.
       One scored run is one server version: first-try task success, calls and tokens per completed
       task, per-tool failure attribution, and a signed replayable recording of everything the server did.
     </p>
-    <p class="lede lede-refusal">
-      Before anything is scored, validity gates run against our own generated task suite. When the
-      eval itself is invalid we refuse to emit a score, and the refusal is published in the same table
-      as the scores. A refusal is a result here, never a blank cell and never a missing row.
-    </p>
-
-    <p class="thesis">A leaderboard you can trust must be able to say: this measurement was not valid.</p>
-
-    <section class="stat-strip" id="stat-strip" aria-label="What this pass measured">
-      <p class="stat-strip-note">Counts render from <a href="data/runs.json">data/runs.json</a>.</p>
-    </section>
   </div>
 </header>
 
-<main class="wrap">
-
-  <section id="leaderboard" aria-labelledby="leaderboard-heading">
-    <div class="section-head">
-      <h2 id="leaderboard-heading">Leaderboard</h2>
-      <p class="section-note" id="summary-line" role="status">Loading runs.</p>
+<!-- ZONE B: the outcome ledger, ordered as a cost ladder, because the gates
+     really do run cheapest first and that order is information. -->
+<section class="ledger-zone" id="outcomes" aria-labelledby="outcomes-heading">
+  <div class="wrap">
+    <h2 id="outcomes-heading" class="sr-only">Outcome ledger</h2>
+    <div id="ledger" class="ledger-host">
+      <p class="state">Reading <code>data/runs.json</code>.</p>
     </div>
+  </div>
+</section>
 
-    <ul class="legend" aria-label="How to read the states">
-      <li><span class="pill pill-scored">SCORED</span> the gates passed and the run produced numbers.</li>
-      <li><span class="pill pill-refused">REFUSED</span> a named gate stopped the run. The gate, its counts and its reason are shown in place of a score.</li>
-      <li><span class="pill pill-unknown">could not check</span> a probe did not apply to this connection. Reported as unknown, never as a pass.</li>
-      <li><span class="legend-key">Why refused</span> opens the measured reason: the rates, the counts and the floor the run missed.</li>
-    </ul>
+<main>
 
-    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="leaderboard-heading">
-      <table class="board" id="board">
-        <caption class="sr-only">MCP servers with their run outcome, first-try success interval, protocol probe results, credential context and replay link.</caption>
-        <thead>
-          <tr>
-            <th scope="col" class="col-server">Server</th>
-            <th scope="col" class="col-outcome">Outcome and score</th>
-            <th scope="col" class="col-interval">First-try success<span class="th-sub">Wilson 95% interval</span></th>
-            <th scope="col" class="col-spec">Spec currency</th>
-            <th scope="col" class="col-hygiene">Protocol hygiene</th>
-            <th scope="col" class="col-cred">Credential context</th>
-            <th scope="col" class="col-replay">Replay</th>
-          </tr>
-        </thead>
-        <tbody id="board-body">
-          <tr class="state-row"><td colspan="7">Loading runs from <code>data/runs.json</code>.</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <!-- ZONE C: the board. One row per run, no expandable panels anywhere. -->
+  <section id="leaderboard" class="board-zone" aria-labelledby="leaderboard-heading">
+    <div class="wrap wrap-board">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="leaderboard-heading">The board</h2>
+          <!-- role="status" alone is not announced reliably when the node is
+               rewritten rather than appended to, so the live behavior is
+               declared explicitly: filtering changes how many rows are on
+               screen, and a reader who cannot see the board needs to hear it. -->
+          <p class="section-note" id="summary-line" role="status" aria-live="polite" aria-atomic="true">Loading runs.</p>
+        </div>
+        <div class="controls" id="board-controls" role="group" aria-label="Filter the board by outcome family"></div>
+      </div>
 
-    <p class="table-foot">
-      Rows are listed by the first-try point estimate, but a row only takes a lower position when another
-      interval sits entirely above it. Rows that nothing separates share a position and are marked as tied,
-      and where two rows still overlap across positions the lower one says so on its own row. Servers scored
-      under different runner models, or with suites built by different task generators, are never ranked
-      against each other. Both are printed on the section heading and on every row.
-    </p>
-    <p class="table-foot">
-      Where a server has been run more than once, every run of it is here. Each row prints its own suite
-      hash and start time and says which attempt it is, so two runs of one server read as two attempts
-      rather than as unrelated rows. Reruns are separate attempts and not a best of: no earlier run is
-      replaced or hidden by a later one.
-    </p>
-    <p class="table-foot">
-      Every refused row opens on <span class="legend-key">Why refused</span>. What you get there is read from
-      that run and nothing else: the rate a model with no tools reached against the rate the agent reached,
-      or how many generated candidates survived admission against the floor they missed, or the reference
-      agent's own counts alongside what the tape shows the server did. Where a run's own record does not
-      carry a number, the panel says so rather than filling the space.
-    </p>
+      <p class="board-order" id="board-order"></p>
 
-    <noscript>
-      <p class="notice">
-        This page renders from <a href="data/runs.json">data/runs.json</a>. With scripting off, read that
-        file directly. Every run in it carries its own outcome, gate ledger and trace links, and the counts
-        in the panels above are read from those records rather than stored anywhere else.
+      <!-- Column labels and the shared 0 to 100 axis, drawn once. Every field in
+           every row carries its own label for assistive tech, so this strip is
+           decoration and is hidden from the accessibility tree. -->
+      <div class="board-head" id="board-head" aria-hidden="true">
+        <span class="bh bh-run">Run</span>
+        <span class="bh bh-result">
+          <span class="bh-label">Result</span>
+          <span class="axis">
+            <span class="axis-line"></span>
+            <span class="axis-tick" style="--at: 0">0</span>
+            <span class="axis-tick" style="--at: 0.5">50</span>
+            <span class="axis-tick" style="--at: 1">100</span>
+          </span>
+        </span>
+        <span class="bh bh-decision">Decision</span>
+        <span class="bh bh-probes">Probes</span>
+        <span class="bh bh-cred">Credential</span>
+        <span class="bh bh-evidence">Evidence</span>
+      </div>
+
+      <div id="board" class="board" data-filter="all">
+        <p class="state">Loading runs from <code>data/runs.json</code>.</p>
+      </div>
+
+      <p class="board-foot">
+        Every published run is on this board, including the ones that produced no number. Rows are
+        grouped by what happened to them and are never ordered into positions: at these sample sizes
+        the order between two overlapping intervals carries no information, so this page prints none.
+        <a href="#methods-interval">How to read the interval</a>.
       </p>
-    </noscript>
+
+      <noscript>
+        <p class="notice">
+          This page renders from <a href="data/runs.json">data/runs.json</a>. With scripting off, read that
+          file directly. Every run in it carries its own outcome, gate ledger and trace links, and every
+          count on this page is read from those records rather than stored anywhere else.
+        </p>
+      </noscript>
+    </div>
   </section>
 
-  <section id="methods" aria-labelledby="methods-heading">
-    <div class="section-head">
-      <h2 id="methods-heading">Methods</h2>
-      <p class="section-note">What the columns mean, and where we knowingly differ from the code we ported.</p>
+  <section id="methods" class="methods-zone" aria-labelledby="methods-heading">
+    <div class="wrap">
+      <div class="section-head">
+        <div class="section-head-text">
+          <h2 id="methods-heading">Methods</h2>
+          <p class="section-note">What the columns mean, what is not in the numbers, and where we knowingly differ from the code we ported.</p>
+        </div>
+      </div>
+
+      <nav class="toc" aria-label="Methods contents">
+        <ul>
+          <li><a href="#methods-position">What this measures</a></li>
+          <li><a href="#methods-gates">Gate order</a></li>
+          <li><a href="#methods-families">How to read a refusal</a></li>
+          <li><a href="#methods-null-screen">The null screen, and its bias</a></li>
+          <li><a href="#methods-extensions">Extensions</a></li>
+          <li><a href="#methods-reruns">More than one run</a></li>
+          <li><a href="#methods-not-in-numbers">What is not in these numbers</a></li>
+          <li><a href="#methods-standing">Recorded on every run</a></li>
+          <li><a href="#methods-divergences">Two divergences from evalgate</a></li>
+          <li><a href="#methods-interval">Reading the interval</a></li>
+          <li><a href="#methods-probes">Protocol probes</a></li>
+          <li><a href="#methods-credential">Credential context</a></li>
+          <li><a href="#methods-evidence">Evidence</a></li>
+        </ul>
+      </nav>
+
+      <h3 id="methods-position">What this measures, and what it does not</h3>
+      <blockquote class="position">
+        <p>Conformance asks whether the server speaks MCP correctly. Fitness Report asks whether an agent
+        can actually get the job done with it.</p>
+      </blockquote>
+      <p class="position-note">
+        The word in that first sentence belongs to the official suite at
+        <a href="https://github.com/modelcontextprotocol/conformance" rel="noopener noreferrer">github.com/modelcontextprotocol/conformance</a>,
+        which is a different project with a different job. Run it too. This board is about task outcomes.
+      </p>
+
+      <blockquote class="position">
+        <p>MCP Atlas asks which model is best at using tools. Fitness Report asks which server is worth using.</p>
+      </blockquote>
+      <p class="position-note">
+        The runner model is pinned into every score record and printed on every scored group. Two servers
+        driven by different runner models are reported side by side but never read against each other,
+        because the token accounting is not comparable across tokenizers.
+      </p>
+
+      <p>
+        Before anything is scored, validity gates run against our own generated task suite. When the
+        eval itself is invalid we refuse to emit a score, and the refusal is published on the same board
+        as the scores, in the slot a number would have occupied. A refusal is a result here, never a
+        blank cell and never a missing row.
+      </p>
+
+      <h3 id="methods-gates">Gate order</h3>
+      <p>
+        Gates run cheapest first and stop at the first failure, so a broken eval never spends model budget:
+        free structural checks, an answer-leak string check and the zero-token protocol probes, then cheap
+        null-model baselines (no tools, stubbed-empty, random valid arguments), then the paid construct gate
+        where a reference agent with full information must reach the answer key at a rate of at least 0.90,
+        and only then the full drive. An indeterminate baseline halts exactly like a failure. On any gate
+        failure the report carries no score field at all, plus the failing gate with its counts, threshold,
+        alpha, p-value and reason string. Those are the strings printed on the board.
+      </p>
+      <p>
+        With a median of about 2.5 tools across the open server roster, a suite below 8 tasks is refused as
+        INSUFFICIENT_SURFACE rather than published as a two-task 100%.
+      </p>
+
+      <h3 id="methods-families">How to read a refusal</h3>
+      <p>
+        Naming the gate is not the same as explaining it. Each run record opens on the numbers the gate
+        actually saw, drawn, and the three families read like this.
+      </p>
+      <dl class="refusal-guide">
+        <dt>The null baseline killed it</dt>
+        <dd>
+          Three null models run the same suite before any paid tier: one with no tools at all, one whose tool
+          calls come back empty, and one calling tools with random valid arguments. The record shows each of
+          those rates against the rate the agent reached with the real server, and the threshold between them.
+          When a model with no tools passes most of the suite, the tasks were answerable from what the model
+          already knew and the server was never in the loop. The finding is about our task generator, not
+          about the server, and the record says so.
+        </dd>
+        <dt>The surface was too thin</dt>
+        <dd>
+          The record shows how many candidate tasks were generated, how many were admitted, the admission rate
+          against its floor, and the suite size against the minimum of 8. Three fates are counted apart,
+          because summing them would inflate the failure count: candidates rejected by admission, listed with
+          the rule that rejected each one; candidates that passed admission and were trimmed as surplus, since
+          the generator deliberately asks for more than it drives; and candidates deleted by the null screen
+          below. Rows produced by the older generator, which did not serialise its per candidate reasons,
+          carry that gap as a stated limitation instead of a breakdown.
+        </dd>
+        <dd>
+          <strong>Neither floor moves.</strong> A thin surface is fixed by generating tasks that survive
+          admission. No threshold, ratio, floor or alpha on this page has ever been loosened to turn a refusal
+          into a score, and none will be.
+        </dd>
+        <dt>The construct gate failed</dt>
+        <dd>
+          A reference agent that has been handed the answer key must still reach it through the server. When
+          it cannot, the record prints its counts and then reads the tape: how many tool calls were recorded,
+          how many came back as errors, and how many never received a matching protocol response at all. A
+          server that advertises tools and then rejects every invocation before a response exists produces
+          requests with no responses, and that is a finding about the server rather than about the agent. It
+          is stated from the recorded counts, never assumed.
+        </dd>
+      </dl>
+
+      <h3 id="methods-null-screen">The generation time null screen, and the bias it introduces</h3>
+      <p>
+        Newer runs screen every candidate task before admission: the runner model is asked to answer it with
+        no tools and no server, and a candidate it answers correctly is deleted before the suite is hashed and
+        before any gate runs. The count deleted is published on each run record, and the deleted candidates
+        are never counted as generator failures because nothing was wrong with them.
+      </p>
+      <p>
+        This is a bias and it points in one direction, so it is stated rather than buried: the run time null
+        baseline on a screened suite measures the noise floor of a suite that was already purged of the tasks
+        that gate looks for, which means it reads lower than it would on an unscreened suite. Nothing about
+        the gate changed. Its 0.5 ratio, its 95th percentile and its halt behaviour are unchanged, the screen
+        never removes a task from a gate denominator, and a screened suite can still be killed by the
+        baseline. What it does mean is that a passed baseline on a screened row and a passed baseline on an
+        unscreened row are not the same evidence, so each row prints which it is, and rows from different
+        generator versions are never read against each other.
+      </p>
+      <p>
+        Every row therefore carries its task generator as a chip, scored or refused, and where a group holds
+        more than one generator the group says so: rows built by one generator are only ever read against rows
+        built by the same one. Records written before that field existed are chipped as generator not recorded
+        rather than assumed to be the older version. Each run record states which screen and which extension
+        protocol were registered for it, in the run's own words.
+      </p>
+      <p>
+        A suite the screen empties is its own finding rather than a thin surface. It refuses as DEGENERATE
+        with the reason <code>all_candidates_null_answerable</code> and the screen ledger behind it, because
+        "we generated enough tasks and a model answered them all with no server at all" is a statement about
+        what the server adds, not about how many tools it has.
+      </p>
+
+      <h3 id="methods-extensions">Extensions, and why EXTEND is not a second chance</h3>
+      <p>
+        The extension size and the maximum number of extensions are fixed in the pre-registration alongside
+        n, before the first call, and both are written into the run record where you can read them. A gate
+        that the registered sample cannot resolve either way is not re-run until it resolves: it consumes a
+        registered extension batch, and after the last extension a gate that is still unresolved resolves to
+        FAIL, which refuses the run as <code>GATE_FAILED</code>. Inside a run there is no optional stopping.
+        A run completes its registered size or it is void, and a regenerated task suite is a new run under a
+        new suite hash rather than another attempt at this one.
+      </p>
+      <p>
+        When a run did consume extensions, its record prints the whole sequence rather than the pooled number
+        alone: what the gate stood at on the registered size, how many tasks each batch added and how many
+        pooled trials they came to, what the pool moved to, and what that pooled count resolved to. Tasks and
+        trials are printed as two numbers because they are two numbers: each task is driven at the registered
+        reps, so a batch of six tasks can contribute eighteen trials to the pool, and one figure labelled
+        both would misstate every batch.
+      </p>
+      <p>
+        That leaves one narrow use for <code>EXTEND_EXHAUSTED</code>: a pre-registration that bought no
+        extension batch at all. With nothing to spend, a gate that resolves neither way is refused where it
+        stands. So the outcome always means the same thing, in every era of this harness, which is that the
+        gate resolved neither way and there was no batch available to buy. It has never meant that a gate was
+        extended until it looked decisive.
+      </p>
+      <p>
+        Rows recorded before the extension protocol ran also carry <code>EXTEND_EXHAUSTED</code>, and they are
+        not relabelled. Their records carry a zero policy and nothing else about the protocol: no registered
+        batch size, no protocol statement on the gate that could have bought one, and no ledger. The
+        arithmetic is the same as a pre-registration that buys none, and the record does not distinguish the
+        two, so each such row says exactly that in its own record, read from its own fields rather than from a
+        list of server names kept anywhere on this page. Their counts are untouched: they are what the gate
+        measured on the day.
+      </p>
+
+      <h3 id="methods-reruns">More than one run of the same server</h3>
+      <p>
+        A server can be driven again at any time, and several here have been. Each drive generates its own
+        task suite under its own hash, so two runs of one server are two measurements and never two views of
+        one. Every row therefore prints the run behind it, not just the server: the task generator as a chip,
+        the suite hash, and the time the drive started. Where a server has more than one published run, each
+        of its rows says which attempt it is and names the others, including where they sit in another group
+        of the board.
+      </p>
+      <p>
+        Reruns are separate attempts, not a best of. The pre-registration binds what happens inside one run;
+        it does not bind how many runs are attempted, and this page does not pretend otherwise. What it does
+        instead is publish all of them: an earlier run is never replaced, hidden or folded into a later one,
+        whatever its outcome was, and no row on this page was selected over another run of the same server.
+      </p>
+
+      <h3 id="methods-not-in-numbers">What is not in these numbers</h3>
+      <p>
+        Every run uses two models. The runner drives the server and its turns are on the agent tape, so its
+        tokens are counted and priced from the record. The judge synthesises the task suite and produces the
+        destructiveness signal before the drive begins, and it writes to neither tape. A total summed from the
+        tapes is therefore the runner's spend and not the run's.
+      </p>
+      <p>
+        So a dollar figure appears here only where the record supports it, labelled measured, and it is built
+        from the runner's recorded tokens plus judge usage on the runs that record it. Everything known to sit
+        outside that figure is named without a number: judge spend on runs that do not record it, the
+        generation time null screen calls that are written to neither plane, and any model on a tape with no
+        price on file. A flat per run assumption is not a measurement, and this page publishes none.
+      </p>
+      <p>
+        A figure is called a total only when nothing known is missing from it. Every other figure is labelled
+        a floor and printed as <em>at least</em>, with the reason it is one. The reasons come from the record:
+        judge usage the harness marked partial, a judge model in the usage breakdown with no price on file,
+        judge calls that came back with no usage block at all, calls that threw before reporting any, and the
+        same on the tape side. Each of those means dollars were spent that are not in the number, so the
+        number is a lower bound and says so. A floor printed as a total is a wrong figure wearing a right
+        label, and it is the one thing this block exists to stop. Where nothing in a record can support a
+        figure at all, no figure is printed and the record says why.
+      </p>
+      <div id="disclosures" class="disclosures">
+        <p class="state">Reading the published records.</p>
+      </div>
+
+      <h3 id="methods-standing">Recorded on every run</h3>
+      <p>
+        The harness writes its method notes into every run it produces, so most of those notes are identical
+        on every row and printing them twenty-two times would bury the notes that actually differ. The notes
+        that a task generator records on <em>every</em> one of its runs are published once here, verbatim.
+        Each run record shows only the notes that belong to that run, which are the ones carrying its own
+        numbers, and says how many standing notes it also carries. Nothing is dropped and nothing is
+        summarised: this is the same text, published once instead of twenty-two times.
+      </p>
+      <div id="standing-notes" class="standing-notes">
+        <p class="state">Reading the published records.</p>
+      </div>
+
+      <h3 id="methods-divergences">Two documented divergences from evalgate</h3>
+      <p>The gate math is ported from evalgate. It differs in exactly two places, and we own both here.</p>
+      <ol class="divergences">
+        <li>
+          <h4>Construct denominator: oracle errors count</h4>
+          <p>
+            evalgate silently shrinks the denominator when an oracle call throws, so three successes out of
+            three completed calls reads as 100% even when forty calls errored. That is wrong for flaky remote
+            servers, which is every remote server. Errors are gated on their own instead:
+            <code>errors / (n + errors) &gt; 0.05</code> resolves the run to COMPROMISED. A compromised run is
+            not a verdict about the server. It is a refusal to score, because the measurement did not complete.
+          </p>
+        </li>
+        <li>
+          <h4>Published PASS is symmetric with published FAIL</h4>
+          <p>
+            A pass on this page additionally requires that the Wilson 95% lower bound sits at or above the
+            threshold, or that the run's own n achieves the planned power against the detectable rate.
+            Exact binomial power is sawtoothed in n, so clearing the planned sample size is not the same
+            claim as being powered at it, and the run's actual n is what gets tested.
+            Otherwise the verdict is downgraded to EXTEND and no pass is published. A small sample that
+            happens to land above the line is not evidence, and publishing it while publishing failures at
+            full rigour would be asymmetric.
+          </p>
+        </li>
+      </ol>
+
+      <h3 id="methods-interval">Reading the interval</h3>
+      <p>
+        First-try success is drawn as its Wilson 95% interval on a shared 0 to 100 axis, with the point
+        estimate marked inside it. The interval is the finding, not the point. There are no positions on this
+        page: a row would only sit below another if that other interval lay entirely above it, and on the
+        published runs no pair is separated that way, so the axis does the comparing and the scored group
+        says out loud that nothing separates its rows. The intervals are computed once, in the run record.
+        This page only renders the stored numbers, so there is no second copy of the statistics to drift.
+      </p>
+
+      <h3 id="methods-probes">Protocol probes</h3>
+      <p>
+        The probe columns are deterministic, cost zero tokens and run before anything else, so a refused run
+        still reports them. Spec currency is the revision the connection actually negotiated. Protocol hygiene
+        counts the probe checks that passed, including whether the server accepts an impossible protocol
+        version, whether a mismatched method or name header is rejected, whether the modern server discovery
+        method is implemented, whether cache hints are present and correctly scoped, and what the deprecation
+        surface looks like. A probe that does not apply to a connection is reported as unknown, never folded
+        into the pass count. A failed probe is a fact about the server, so it is coloured as a server fault
+        and never as a refusal: a refusal is a decision about our own measurement.
+      </p>
+
+      <h3 id="methods-credential">Credential context</h3>
+      <p>
+        Every score is stamped with the credentials it was collected under: anonymous, free-key or owner-key.
+        Tool surfaces differ by credential on real servers, so a number collected anonymously is not the same
+        measurement as one collected with an owner key, and the two are labelled rather than merged.
+      </p>
+
+      <h3 id="methods-evidence">Evidence</h3>
+      <p>
+        Every finding on this page links to the recorded session that justifies it. Each run publishes two
+        tapes, the MCP wire plane and the agent plane, served with permissive cross-origin headers and an
+        immutable cache, and the replay link opens both in the viewer in one merged timeline. Nothing is
+        embedded or loaded until you click. There are no bare counts here: if a claim has no recording behind
+        it, the row says so instead.
+      </p>
+      <p class="prior-art">
+        Prior art: MCPEval for model-driven task synthesis with machine-checkable predicates, evalgate for the
+        validity gate math, mcp-tape for the tape format and pairing statistics. What is added here is the
+        refusal, the signed replay behind every claim, and rewrite proposals tied to the recorded sessions
+        they were derived from.
+      </p>
     </div>
-
-    <h3>What this measures, and what it does not</h3>
-    <blockquote class="position">
-      <p>Conformance asks whether the server speaks MCP correctly. Fitness Report asks whether an agent
-      can actually get the job done with it.</p>
-    </blockquote>
-    <p class="position-note">
-      The word in that first sentence belongs to the official suite at
-      <a href="https://github.com/modelcontextprotocol/conformance" rel="noopener noreferrer">github.com/modelcontextprotocol/conformance</a>,
-      which is a different project with a different job. Run it too. This table is about task outcomes.
-    </p>
-
-    <blockquote class="position">
-      <p>MCP Atlas asks which model is best at using tools. Fitness Report asks which server is worth using.</p>
-    </blockquote>
-    <p class="position-note">
-      The runner model is pinned into every score record and printed on every ranked group. Two servers
-      driven by different runner models are reported side by side but never ranked against each other,
-      because the token accounting is not comparable across tokenizers.
-    </p>
-
-    <h3>Gate order</h3>
-    <p>
-      Gates run cheapest first and stop at the first failure, so a broken eval never spends model budget:
-      free structural checks, an answer-leak string check and the zero-token protocol probes, then cheap
-      null-model baselines (no tools, stubbed-empty, random valid arguments), then the paid construct gate
-      where a reference agent with full information must reach the answer key at a rate of at least 0.90,
-      and only then the full drive. An indeterminate baseline halts exactly like a failure. On any gate
-      failure the report carries no score field at all, plus the failing gate with its counts, threshold,
-      alpha, p-value and reason string. Those are the strings printed in the table.
-    </p>
-    <p>
-      With a median of about 2.5 tools across the open server roster, a suite below 8 tasks is refused as
-      INSUFFICIENT_SURFACE rather than published as a two-task 100%.
-    </p>
-
-    <h3>How to read a refusal</h3>
-    <p>
-      Naming the gate is not the same as explaining it. Each refused row opens to the numbers the gate
-      actually saw, and the three families read like this.
-    </p>
-    <dl class="refusal-guide">
-      <dt>The null baseline killed it</dt>
-      <dd>
-        Three null models run the same suite before any paid tier: one with no tools at all, one whose tool
-        calls come back empty, and one calling tools with random valid arguments. The panel shows each of
-        those rates against the rate the agent reached with the real server, and the threshold between them.
-        When a model with no tools passes most of the suite, the tasks were answerable from what the model
-        already knew and the server was never in the loop. The finding is about our task generator, not
-        about the server, and the row says so.
-      </dd>
-      <dt>The surface was too thin</dt>
-      <dd>
-        The panel shows how many candidate tasks were generated, how many were admitted, the admission rate
-        against its floor, and the suite size against the minimum of 8. Three fates are counted apart,
-        because summing them would inflate the failure count: candidates rejected by admission, listed with
-        the rule that rejected each one; candidates that passed admission and were trimmed as surplus, since
-        the generator deliberately asks for more than it drives; and candidates deleted by the null screen
-        below. Rows produced by the older generator, which did not serialise its per candidate reasons,
-        carry that gap as a stated limitation instead of a breakdown.
-      </dd>
-      <dd>
-        <strong>Neither floor moves.</strong> A thin surface is fixed by generating tasks that survive
-        admission. No threshold, ratio, floor or alpha on this page has ever been loosened to turn a refusal
-        into a score, and none will be.
-      </dd>
-      <dt>The construct gate failed</dt>
-      <dd>
-        A reference agent that has been handed the answer key must still reach it through the server. When
-        it cannot, the panel prints its counts and then reads the tape: how many tool calls were recorded,
-        how many came back as errors, and how many never received a matching protocol response at all. A
-        server that advertises tools and then rejects every invocation before a response exists produces
-        requests with no responses, and that is a finding about the server rather than about the agent. It
-        is stated from the recorded counts, never assumed.
-      </dd>
-    </dl>
-
-    <h3>The generation time null screen, and the bias it introduces</h3>
-    <p>
-      Newer runs screen every candidate task before admission: the runner model is asked to answer it with
-      no tools and no server, and a candidate it answers correctly is deleted before the suite is hashed and
-      before any gate runs. The count deleted is published on each row, and the deleted candidates are never
-      counted as generator failures because nothing was wrong with them.
-    </p>
-    <p>
-      This is a bias and it points in one direction, so it is stated rather than buried: the run time null
-      baseline on a screened suite measures the noise floor of a suite that was already purged of the tasks
-      that gate looks for, which means it reads lower than it would on an unscreened suite. Nothing about
-      the gate changed. Its 0.5 ratio, its 95th percentile and its halt behaviour are unchanged, the screen
-      never removes a task from a gate denominator, and a screened suite can still be killed by the
-      baseline. What it does mean is that a passed baseline on a screened row and a passed baseline on an
-      unscreened row are not the same evidence, so each row prints which it is, and rows are never ranked
-      across generator versions.
-    </p>
-    <p>
-      Every row therefore carries its task generator as a badge, scored or refused, and the sections of the
-      table are split on it: rows built by one generator are only ever ranked or read against rows built by
-      the same one. Records written before that field existed are badged as generator not recorded rather
-      than assumed to be the older version, and they sit in their own section for the same reason. Each
-      row's own method notes state which screen and which extension protocol were registered for it, in the
-      run's own words.
-    </p>
-    <p>
-      A suite the screen empties is its own finding rather than a thin surface. It refuses as DEGENERATE
-      with the reason <code>all_candidates_null_answerable</code> and the screen ledger behind it, because
-      "we generated enough tasks and a model answered them all with no server at all" is a statement about
-      what the server adds, not about how many tools it has.
-    </p>
-
-    <h3>Extensions, and why EXTEND is not a second chance</h3>
-    <p>
-      The extension size and the maximum number of extensions are fixed in the pre-registration alongside
-      n, before the first call, and both are written into the run record where you can read them. A gate
-      that the registered sample cannot resolve either way is not re-run until it resolves: it consumes a
-      registered extension batch, and after the last extension a gate that is still unresolved resolves to
-      FAIL, which refuses the run as <code>GATE_FAILED</code>. Inside a run there is no optional stopping.
-      A run completes its registered size or it is void, and a regenerated task suite is a new run under a
-      new suite hash rather than another attempt at this one.
-    </p>
-    <p>
-      When a run did consume extensions, its panel prints the whole sequence rather than the pooled number
-      alone: what the gate stood at on the registered size, how many tasks each batch added and how many
-      pooled trials they came to, what the pool moved to, and what that pooled count resolved to. Tasks and
-      trials are printed as two numbers because they are two numbers: each task is driven at the registered
-      reps, so a batch of six tasks can contribute eighteen trials to the pool, and one figure labelled
-      both would misstate every batch.
-    </p>
-    <p>
-      That leaves one narrow use for <code>EXTEND_EXHAUSTED</code>: a pre-registration that bought no
-      extension batch at all. With nothing to spend, a gate that resolves neither way is refused where it
-      stands. So the outcome always means the same thing, in every era of this harness, which is that the
-      gate resolved neither way and there was no batch available to buy. It has never meant that a gate was
-      extended until it looked decisive.
-    </p>
-    <p>
-      Rows recorded before the extension protocol ran also carry <code>EXTEND_EXHAUSTED</code>, and they are
-      not relabelled. Their records carry a zero policy and nothing else about the protocol: no registered
-      batch size, no protocol statement on the gate that could have bought one, and no ledger. The
-      arithmetic is the same as a pre-registration that buys none, and the record does not distinguish the
-      two, so each such row says exactly that in its own panel, read from its own fields rather than from a
-      list of server names kept anywhere on this page. Their counts are untouched: they are what the gate
-      measured on the day.
-    </p>
-
-    <h3>More than one run of the same server</h3>
-    <p>
-      A server can be driven again at any time, and several here have been. Each drive generates its own
-      task suite under its own hash, so two runs of one server are two measurements and never two views of
-      one. Every row therefore prints the run behind it, not just the server: the task generator as a badge,
-      the suite hash, and the time the drive started. Where a server has more than one published run, each
-      of its rows says which attempt it is and names the others, including where they sit in another section
-      of the table.
-    </p>
-    <p>
-      Reruns are separate attempts, not a best of. The pre-registration binds what happens inside one run;
-      it does not bind how many runs are attempted, and this page does not pretend otherwise. What it does
-      instead is publish all of them: an earlier run is never replaced, hidden or folded into a later one,
-      whatever its outcome was, and no row on this page was selected over another run of the same server.
-    </p>
-
-    <h3>What a cost figure on this page covers</h3>
-    <p>
-      Every run uses two models. The runner drives the server and its turns are on the agent tape, so its
-      tokens are counted and priced from the record. The judge synthesises the task suite and produces the
-      destructiveness signal before the drive begins, and it writes to neither tape. A total summed from the
-      tapes is therefore the runner's spend and not the run's.
-    </p>
-    <p>
-      So a dollar figure appears here only where the record supports it, labelled measured, and it is built
-      from the runner's recorded tokens plus judge usage on the runs that record it. Everything known to sit
-      outside that figure is named without a number: judge spend on runs that do not record it, the
-      generation time null screen calls that are written to neither plane, and any model on a tape with no
-      price on file. A flat per run assumption is not a measurement, and this page publishes none.
-    </p>
-    <p>
-      A figure is called a total only when nothing known is missing from it. Every other figure is labelled
-      a floor and printed as <em>at least</em>, with the reason it is one. The reasons come from the record:
-      judge usage the harness marked partial, a judge model in the usage breakdown with no price on file,
-      judge calls that came back with no usage block at all, calls that threw before reporting any, and the
-      same on the tape side. Each of those means dollars were spent that are not in the number, so the
-      number is a lower bound and says so. A floor printed as a total is a wrong figure wearing a right
-      label, and it is the one thing this block exists to stop. Where nothing in a record can support a
-      figure at all, no figure is printed and the panel says why.
-    </p>
-
-    <h3>Two documented divergences from evalgate</h3>
-    <p>The gate math is ported from evalgate. It differs in exactly two places, and we own both here.</p>
-    <ol class="divergences">
-      <li>
-        <h4>Construct denominator: oracle errors count</h4>
-        <p>
-          evalgate silently shrinks the denominator when an oracle call throws, so three successes out of
-          three completed calls reads as 100% even when forty calls errored. That is wrong for flaky remote
-          servers, which is every remote server. Errors are gated on their own instead:
-          <code>errors / (n + errors) &gt; 0.05</code> resolves the run to COMPROMISED. A compromised run is
-          not a verdict about the server. It is a refusal to score, because the measurement did not complete.
-        </p>
-      </li>
-      <li>
-        <h4>Published PASS is symmetric with published FAIL</h4>
-        <p>
-          A pass on this page additionally requires that the Wilson 95% lower bound sits at or above the
-          threshold, or that the run's own n achieves the planned power against the detectable rate.
-          Exact binomial power is sawtoothed in n, so clearing the planned sample size is not the same
-          claim as being powered at it, and the run's actual n is what gets tested.
-          Otherwise the verdict is downgraded to EXTEND and no pass is published. A small sample that
-          happens to land above the line is not evidence, and publishing it while publishing failures at
-          full rigour would be asymmetric.
-        </p>
-      </li>
-    </ol>
-
-    <h3>Reading the interval</h3>
-    <p>
-      First-try success is shown as its Wilson 95% interval with the point estimate marked inside it. The
-      interval is the finding, not the point. Listing order uses the point estimate, but the position is a
-      dominance position: a row sits below another only when that other interval lies entirely above it.
-      Rows nothing separates share a position and are marked tied, and any remaining overlap between
-      neighbours is printed on the lower row, because at these sample sizes the order between two
-      overlapping rows carries no information. The intervals are computed once, in the run record. This
-      page only renders the stored numbers, so there is no second copy of the statistics to drift.
-    </p>
-
-    <h3>Protocol probes</h3>
-    <p>
-      The probe columns are deterministic, cost zero tokens and run before anything else, so a refused run
-      still reports them. Spec currency is the revision the connection actually negotiated. Protocol hygiene
-      counts the probe checks that passed, including whether the server accepts an impossible protocol
-      version, whether a mismatched method or name header is rejected, whether the modern server discovery
-      method is implemented, whether cache hints are present and correctly scoped, and what the deprecation
-      surface looks like. A probe that does not apply to a connection is reported as unknown, never folded
-      into the pass count.
-    </p>
-
-    <h3>Credential context</h3>
-    <p>
-      Every score is stamped with the credentials it was collected under: anonymous, free-key or owner-key.
-      Tool surfaces differ by credential on real servers, so a number collected anonymously is not the same
-      measurement as one collected with an owner key, and the two are labelled rather than merged.
-    </p>
-
-    <h3>Evidence</h3>
-    <p>
-      Every finding on this page links to the recorded session that justifies it. Each run publishes two
-      tapes, the MCP wire plane and the agent plane, served with permissive cross-origin headers and an
-      immutable cache, and the replay link opens both in the viewer in one merged timeline. Nothing is
-      embedded or loaded until you click. There are no bare counts here: if a claim has no recording behind
-      it, the row says so instead.
-    </p>
-    <p class="prior-art">
-      Prior art: MCPEval for model-driven task synthesis with machine-checkable predicates, evalgate for the
-      validity gate math, mcp-tape for the tape format and pairing statistics. What is added here is the
-      refusal, the signed replay behind every claim, and rewrite proposals tied to the recorded sessions
-      they were derived from.
-    </p>
   </section>
 </main>
 
-<footer class="wrap site-foot">
-  <p>
-    Data source: <a href="data/runs.json">data/runs.json</a>. Tapes live under <code>/traces/</code> on this
-    same origin. Every row is a real run against a public server, published with the recording it was read
-    from, including the runs that produced no number.
-  </p>
+<footer class="site-foot">
+  <div class="wrap">
+    <p class="issuing">
+      <span class="issuing-label">Issued from</span>
+      <a href="data/runs.json"><code>data/runs.json</code></a>
+      <span class="issuing-sep" aria-hidden="true">/</span>
+      <span>every count on this page renders from that file</span>
+    </p>
+    <p>
+      Tapes live under <code>/traces/</code> on this same origin. Every row is a real run against a public
+      server, published with the recording it was read from, including the runs that produced no number.
+      With scripting off, read <a href="data/runs.json">data/runs.json</a> directly: it carries the same
+      outcomes, gate ledgers and trace links this page renders.
+    </p>
+  </div>
 </footer>
+
+<!-- ZONE D: the run record. One addressable view per run, at #run/<runId>. -->
+<div class="record-scrim" id="record-scrim" hidden></div>
+<aside class="record" id="record" hidden role="dialog" aria-modal="false" aria-labelledby="record-title" tabindex="-1"></aside>
 
 <script type="module" src="app.js"></script>
 </body>

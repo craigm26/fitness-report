@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-20T17:59:50.527Z","label":"docs-mcp-cloudflare-com","command":["fitness-report","https://docs.mcp.cloudflare.com/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"18292a9cc2d5ab8353309225bee5fda69c57421f602ddcb2402a67d469712fb7"}}
+{"t":"2026-08-20T18:03:04.103Z","type":"end","reason":"eval_complete","durationMs":193576}

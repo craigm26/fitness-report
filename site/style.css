@@ -1,13 +1,45 @@
 /*
  * Fitness Report leaderboard styles.
  *
- * Every colour is a token on :root and is redefined once under
- * prefers-color-scheme: dark. Nothing below the token block hard codes a
- * colour, so the two themes cannot drift apart.
+ * CERTIFICATE OF ANALYSIS, NOT A SCOREBOARD.
  *
- * The visual job of this sheet: a refused run must read as a deliberate,
- * legible result, not as an error state or an empty row, and a Wilson interval
- * must read as an interval rather than as a number with decoration.
+ * Analytical labs solved this publication problem decades ago: a certificate
+ * prints "not detected" and "specimen rejected" in the same result field, at the
+ * same weight, in the same type as a measured value, always with a code, always
+ * traceable back to the retained sample. That is exactly what a refusal needs,
+ * so this page is laid out as an issued record: field wells, boxed codes, small
+ * labels above values, and a result slot that is never empty.
+ *
+ * COLOUR. Seven tokens are declared. Everything else is derived from them with
+ * color-mix, so a tint can never drift from the colour it came from. Each token
+ * is defined once on bare :root, once under prefers-color-scheme: dark, and once
+ * under [data-theme="dark"]. No colour is defined only inside a media query.
+ *
+ *   --refuse is indigo, and it is deliberate. Amber says caution and red says
+ *   failure, and both frame a refusal as something that went wrong. A refusal
+ *   here is a hold: a decision by the harness, recorded and signed. On today's
+ *   data indigo is the dominant colour of the page, which is correct, because
+ *   the page is mostly refusals.
+ *
+ *   --fault is the one extra hue. A failed protocol probe or an unannotated
+ *   destructive tool is a fact about the SERVER, and it must never wear the
+ *   same colour as a decision about our own measurement.
+ *
+ * CONTRAST. --ink-quiet is the floor for small text: measured at 5.0:1 or better
+ * against every surface it is used on, in both themes. --ink-faint is used only
+ * on --paper and --record, where it measures 4.7:1 or better, and never on a
+ * wash. --rule is a hairline; the axis and focus rings use --rule-strong, which
+ * clears 3:1 in both themes.
+ *
+ * TYPE. Three roles, three jobs. The display face is a monospace at 700, which
+ * keeps the page's whole typographic argument inside the register of recorded
+ * data instead of borrowing an editorial serif. It is used for exactly four
+ * things: the wordmark, the thesis, the outcome codes, and the ledger counts.
+ * The specified faces (Martian Mono, IBM Plex Sans, IBM Plex Mono) are not
+ * loaded: this origin's Content-Security-Policy is default-src 'self' with no
+ * font-src, so a Google Fonts request would be blocked and the page would ship a
+ * dependency it cannot fetch. The stacks below carry the same three roles with
+ * faces the reader already has.
  */
 
 /* --------------------------------------------------------------------------
@@ -17,78 +49,114 @@
 :root {
   color-scheme: light dark;
 
-  --bg: #faf8f4;
-  --bg-tint: #f2efe8;
-  --surface: #ffffff;
-  --surface-2: #f6f4ef;
-  --text: #191a1c;
-  --text-soft: #3d4045;
-  --muted: #62666d;
-  --faint: #8a8f96;
+  /* the seven */
+  --paper: #eff2f1;
+  --record: #ffffff;
+  --ink: #12181a;
+  --rule: #c9d2cf;
+  --measure: #0b5f63;
+  --refuse: #4a3d99;
+  --fault: #9a3b1f;
 
-  --line: #e4dfd5;
-  --line-strong: #cec7b9;
+  /* derived, with the computed value first so an old parser still gets a colour */
+  --ink-quiet: #54595b;
+  --ink-quiet: color-mix(in oklab, var(--ink) 66%, var(--paper));
+  --ink-faint: #656a6b;
+  --ink-faint: color-mix(in oklab, var(--ink) 58%, var(--paper));
+  --rule-strong: #808585;
+  --rule-strong: color-mix(in oklab, var(--ink) 46%, var(--paper));
+  --measure-wash: #e3ebeb;
+  --measure-wash: color-mix(in oklab, var(--measure) 12%, var(--record));
+  --refuse-wash: #e7e7f4;
+  --refuse-wash: color-mix(in oklab, var(--refuse) 12%, var(--record));
+  --fault-wash: #f5e7e3;
+  --fault-wash: color-mix(in oklab, var(--fault) 12%, var(--record));
+  --mark: #e8ebea;
+  --mark: color-mix(in oklab, var(--ink) 5%, var(--paper));
+  --scrim: rgba(18, 24, 26, 0.45);
+  --scrim: color-mix(in oklab, var(--ink) 45%, transparent);
 
-  --accent: #17564a;
-  --accent-soft: #d8e9e3;
-  --accent-ink: #0f3d34;
+  --hatch: repeating-linear-gradient(135deg, var(--refuse-wash) 0 6px, transparent 6px 12px);
+  --shadow: 0 0 0 1px rgba(18, 24, 26, 0.06), -18px 0 48px rgba(18, 24, 26, 0.14);
 
-  --ok: #2c6a4a;
-  --ok-soft: #dcecdf;
-  --fail: #9d3520;
-  --fail-soft: #f6e0d8;
-  --refuse: #8a5106;
-  --refuse-soft: #f7e9cf;
-  --unknown: #5b6068;
-  --unknown-soft: #e8e6e1;
+  --font-display: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-text: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
-  --track: #e6e2d9;
-  --band: #17564a;
-  --tie-tint: rgba(23, 86, 74, 0.06);
-  --refuse-tint: rgba(138, 81, 6, 0.06);
+  --wrap: 1180px;
+  --wrap-board: 1320px;
+  --pad: 24px;
+  --radius: 4px;
 
-  --shadow: 0 1px 2px rgba(24, 22, 18, 0.05), 0 8px 24px rgba(24, 22, 18, 0.05);
-
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-
-  --wrap: 1220px;
-  --radius: 6px;
+  --board-cols: minmax(0, 2.15fr) 224px minmax(0, 1.55fr) minmax(0, 1.05fr) 104px 132px;
+  --board-gap: 20px;
 }
 
 @media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0d1112;
+    --record: #151b1d;
+    --ink: #e6edeb;
+    --rule: #2b3436;
+    --measure: #56d0c6;
+    --refuse: #a99bff;
+    --fault: #f2916f;
+
+    --ink-quiet: #939a99;
+    --ink-quiet: color-mix(in oklab, var(--ink) 66%, var(--paper));
+    --ink-faint: #818787;
+    --ink-faint: color-mix(in oklab, var(--ink) 58%, var(--paper));
+    --rule-strong: #666c6c;
+    --rule-strong: color-mix(in oklab, var(--ink) 46%, var(--paper));
+    --measure-wash: #1e2d2e;
+    --measure-wash: color-mix(in oklab, var(--measure) 12%, var(--record));
+    --refuse-wash: #242934;
+    --refuse-wash: color-mix(in oklab, var(--refuse) 12%, var(--record));
+    --fault-wash: #2c2827;
+    --fault-wash: color-mix(in oklab, var(--fault) 12%, var(--record));
+    --mark: #171b1c;
+    --mark: color-mix(in oklab, var(--ink) 5%, var(--paper));
+    --scrim: rgba(0, 0, 0, 0.6);
+    --scrim: color-mix(in oklab, #000000 60%, transparent);
+
+    --shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), -18px 0 48px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #0d1112;
+  --record: #151b1d;
+  --ink: #e6edeb;
+  --rule: #2b3436;
+  --measure: #56d0c6;
+  --refuse: #a99bff;
+  --fault: #f2916f;
+
+  --ink-quiet: #939a99;
+  --ink-quiet: color-mix(in oklab, var(--ink) 66%, var(--paper));
+  --ink-faint: #818787;
+  --ink-faint: color-mix(in oklab, var(--ink) 58%, var(--paper));
+  --rule-strong: #666c6c;
+  --rule-strong: color-mix(in oklab, var(--ink) 46%, var(--paper));
+  --measure-wash: #1e2d2e;
+  --measure-wash: color-mix(in oklab, var(--measure) 12%, var(--record));
+  --refuse-wash: #242934;
+  --refuse-wash: color-mix(in oklab, var(--refuse) 12%, var(--record));
+  --fault-wash: #2c2827;
+  --fault-wash: color-mix(in oklab, var(--fault) 12%, var(--record));
+  --mark: #171b1c;
+  --mark: color-mix(in oklab, var(--ink) 5%, var(--paper));
+  --scrim: rgba(0, 0, 0, 0.6);
+  --scrim: color-mix(in oklab, #000000 60%, transparent);
+
+  --shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), -18px 0 48px rgba(0, 0, 0, 0.5);
+}
+
+@media (prefers-contrast: more) {
   :root {
-    --bg: #14161a;
-    --bg-tint: #1a1d22;
-    --surface: #1b1e24;
-    --surface-2: #21252c;
-    --text: #eef0f3;
-    --text-soft: #cfd3da;
-    --muted: #a2a8b2;
-    --faint: #7c828c;
-
-    --line: #2c313a;
-    --line-strong: #3d4450;
-
-    --accent: #6fd6bc;
-    --accent-soft: #1d3b37;
-    --accent-ink: #a6e8d7;
-
-    --ok: #74cf9c;
-    --ok-soft: #1c3327;
-    --fail: #f0917a;
-    --fail-soft: #3a231d;
-    --refuse: #eab45f;
-    --refuse-soft: #3a2e18;
-    --unknown: #9aa1ab;
-    --unknown-soft: #262b33;
-
-    --track: #2a2f38;
-    --band: #6fd6bc;
-    --tie-tint: rgba(111, 214, 188, 0.07);
-    --refuse-tint: rgba(234, 180, 95, 0.07);
-
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.35);
+    --rule: var(--ink-faint);
+    --ink-quiet: var(--ink);
+    --ink-faint: var(--ink);
   }
 }
 
@@ -102,1510 +170,1978 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  font-size: 16px;
-  line-height: 1.55;
-}
-
-a {
-  color: var(--accent);
-  text-underline-offset: 0.18em;
-  text-decoration-thickness: 1px;
-}
-
-a:hover {
-  color: var(--accent-ink);
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-
-code {
-  font-family: var(--mono);
-  font-size: 0.87em;
-  color: var(--text-soft);
-  word-break: break-word;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-text);
+  font-size: 15px;
+  line-height: 1.6;
+  /* One unbreakable token used to push the whole document sideways at 348px and
+     under. Long strings wrap everywhere on this page, by rule. */
+  overflow-wrap: break-word;
 }
 
 h1,
 h2,
 h3,
 h4 {
-  line-height: 1.2;
   margin: 0;
-  font-weight: 620;
-  letter-spacing: -0.012em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+a {
+  color: var(--measure);
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: from-font;
+  overflow-wrap: anywhere;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--rule-strong);
+  outline-offset: 2px;
 }
 
 .wrap {
+  width: 100%;
   max-width: var(--wrap);
-  margin-inline: auto;
-  padding-inline: clamp(16px, 4vw, 40px);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+.wrap-board {
+  max-width: var(--wrap-board);
 }
 
 .sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
-  padding: 0;
   margin: -1px;
+  padding: 0;
   overflow: hidden;
-  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
 }
 
+/* Out of flow at all times: parking a link at left:-9999px still lets it
+   participate in layout, which is one of the ways this page used to scroll
+   sideways. */
 .skip {
   position: absolute;
-  left: -9999px;
-  top: 0;
-  background: var(--surface);
-  padding: 10px 16px;
-  z-index: 5;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
-.skip:focus {
-  left: 12px;
-  top: 12px;
+.skip:focus-visible {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 60;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  padding: 10px 14px;
+  background: var(--record);
+  border: 1px solid var(--ink);
+  border-radius: var(--radius);
+}
+
+.state {
+  padding: 20px 0;
+  color: var(--ink-quiet);
+}
+
+.is-missing {
+  color: var(--ink-quiet);
+  font-style: normal;
+}
+
+.is-error {
+  color: var(--fault);
+}
+
+.notice {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--fault);
+  border-radius: var(--radius);
 }
 
 /* --------------------------------------------------------------------------
-   masthead
+   ZONE A: masthead
    -------------------------------------------------------------------------- */
 
 .masthead {
-  border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--surface), var(--bg));
-  padding-block: clamp(32px, 6vw, 64px) clamp(24px, 4vw, 44px);
+  padding: 48px 0 40px;
+  border-bottom: 1px solid var(--rule);
 }
 
 .eyebrow {
-  margin: 0 0 10px;
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--ink-faint);
 }
 
-.masthead h1 {
-  font-size: clamp(34px, 5.2vw, 54px);
-  letter-spacing: -0.028em;
+.wordmark {
+  margin-top: 10px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.thesis {
+  max-width: 20ch;
+  margin-top: 20px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(28px, 5.2vw, 64px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.thesis-count {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 2px solid var(--refuse);
+  font-family: var(--font-mono);
+  font-size: clamp(17px, 2.4vw, 21px);
+  color: var(--refuse);
 }
 
 .lede {
   max-width: 68ch;
-  margin: 18px 0 0;
-  color: var(--text-soft);
-  font-size: clamp(15px, 1.5vw, 17px);
-}
-
-.lede-refusal {
-  border-left: 3px solid var(--refuse);
-  padding-left: 16px;
-  color: var(--muted);
-}
-
-/* the thesis and the counts behind it, side by side at the top of the page */
-
-.thesis {
-  max-width: 30ch;
-  margin: 26px 0 0;
-  font-size: clamp(19px, 2.6vw, 26px);
-  font-weight: 620;
-  line-height: 1.25;
-  letter-spacing: -0.018em;
-  color: var(--text);
-  text-wrap: balance;
-}
-
-.stat-strip {
-  margin: 20px 0 0;
-  padding-top: 18px;
-  border-top: 1px solid var(--line-strong);
-}
-
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 18px 26px;
-  margin: 0;
-}
-
-.stat {
-  border-left: 2px solid var(--line-strong);
-  padding-left: 12px;
-}
-
-.stat-label {
-  font-size: 11.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.stat-value {
-  display: block;
-  margin: 2px 0 0;
-  font-family: var(--mono);
-  font-size: clamp(24px, 3vw, 32px);
-  font-weight: 620;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-  color: var(--text);
-}
-
-.stat-note {
-  display: block;
-  margin-top: 4px;
-  font-family: var(--sans);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0;
-  line-height: 1.4;
-  color: var(--muted);
-}
-
-.stat-strip-note {
-  margin: 16px 0 0;
-  max-width: 78ch;
-  font-size: 13px;
-  color: var(--muted);
-  border-left: 3px solid var(--refuse);
-  padding-left: 14px;
+  margin-top: 22px;
+  color: var(--ink-quiet);
 }
 
 /* --------------------------------------------------------------------------
-   sections
+   ZONE B: the outcome ledger
    -------------------------------------------------------------------------- */
 
-main {
-  padding-block: clamp(28px, 5vw, 52px) 0;
+.ledger-zone {
+  padding: 32px 0 34px;
+  background: var(--record);
+  border-bottom: 1px solid var(--rule);
 }
 
-section {
-  margin-bottom: clamp(40px, 7vw, 76px);
+.ledger {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+}
+
+@media (min-width: 900px) {
+  .ledger {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* On a phone the count moves into a gutter beside its own label and reason,
+   because a plain language sentence in a 150px column is six lines of nothing. */
+@media (max-width: 559px) {
+  .ledger {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ledger-cell {
+    display: grid;
+    grid-template-columns: 60px minmax(0, 1fr);
+    gap: 4px 12px;
+    align-items: start;
+    padding: 14px;
+  }
+
+  .cell-count {
+    grid-area: 1 / 1 / 4 / 2;
+    font-size: 32px;
+  }
+
+  .cell-label {
+    grid-area: 1 / 2 / 2 / 3;
+  }
+
+  .cell-codes {
+    grid-area: 2 / 2 / 3 / 3;
+  }
+
+  .cell-line {
+    grid-area: 3 / 2 / 4 / 3;
+  }
+}
+
+.ledger-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 16px 18px;
+  background: var(--record);
+  border-top: 3px solid var(--refuse);
+}
+
+.ledger-cell[data-family="scored"] {
+  border-top-color: var(--measure);
+}
+
+.ledger-cell[data-family="unclassified"] {
+  border-top-color: var(--ink-faint);
+}
+
+.cell-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.cell-count {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(28px, 5vw, 44px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--refuse);
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-cell[data-family="scored"] .cell-count {
+  color: var(--measure);
+}
+
+.ledger-cell[data-family="unclassified"] .cell-count {
+  color: var(--ink);
+}
+
+.cell-codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.cell-code {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--refuse);
+  background: var(--refuse-wash);
+  border: 1px solid var(--refuse);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  overflow-wrap: anywhere;
+}
+
+.ledger-cell[data-family="scored"] .cell-code {
+  color: var(--measure);
+  background: var(--measure-wash);
+  border-color: var(--measure);
+}
+
+.cell-line {
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.ticks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 18px;
+}
+
+.tick-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--rule);
+}
+
+/* A tick is a thin bar with a target around it: 24 by 44 is the smallest thing
+   a finger should be asked to hit, and the bar itself stays 12px wide. */
+.tick {
+  display: block;
+  width: 24px;
+  min-height: 44px;
+  background:
+    linear-gradient(var(--refuse), var(--refuse)) center / 12px 24px no-repeat;
+  border-radius: 2px;
+}
+
+.tick[data-family="scored"] {
+  background-image: linear-gradient(var(--measure), var(--measure));
+}
+
+.tick[data-family="unclassified"] {
+  background-image: linear-gradient(var(--ink-faint), var(--ink-faint));
+}
+
+.tick:hover,
+.tick:focus-visible {
+  background-size: 12px 36px;
+}
+
+.ticks-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.spend-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  max-width: 76ch;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.spend-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.spend-figure {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.spend-floor {
+  font-size: 13px;
+}
+
+.spend-tail {
+  flex: 1 1 40ch;
+}
+
+/* --------------------------------------------------------------------------
+   ZONE C: the board
+   -------------------------------------------------------------------------- */
+
+.board-zone {
+  padding: 36px 0 44px;
 }
 
 .section-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px 20px;
-  border-bottom: 1px solid var(--line-strong);
-  padding-bottom: 10px;
-  margin-bottom: 18px;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--ink);
 }
 
-.section-head h2 {
-  font-size: clamp(20px, 2.4vw, 26px);
+.section-head-text h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .section-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
+  max-width: 68ch;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-quiet);
 }
 
-/* --------------------------------------------------------------------------
-   legend and pills
-   -------------------------------------------------------------------------- */
-
-.legend {
+.controls {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 26px;
-  list-style: none;
-  margin: 0 0 18px;
-  padding: 0;
-  font-size: 13.5px;
-  color: var(--muted);
+  gap: 6px;
 }
 
-.legend li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.pill {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-family: var(--mono);
-  font-size: 11.5px;
+.filter {
+  min-height: 44px;
+  padding: 8px 12px;
+  font-family: var(--font-text);
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
-
-.pill-scored {
-  background: var(--ok-soft);
-  color: var(--ok);
-  border-color: var(--ok);
-}
-
-.pill-refused {
-  background: var(--refuse-soft);
-  color: var(--refuse);
-  border-color: var(--refuse);
-}
-
-.pill-unknown {
-  background: var(--unknown-soft);
-  color: var(--unknown);
-  border-color: var(--line-strong);
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
-
-.badge {
-  display: inline-block;
-  padding: 3px 10px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line-strong);
-  background: var(--surface-2);
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--text-soft);
-  white-space: nowrap;
-}
-
-.badge-anonymous {
-  border-style: dashed;
-  color: var(--muted);
-}
-
-.badge-free-key {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.badge-owner-key {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--surface);
-}
-
-@media (prefers-color-scheme: dark) {
-  .badge-owner-key {
-    color: #10221f;
-  }
-}
-
-.badge-unknown {
-  border-style: dotted;
-  color: var(--faint);
-}
-
-.tag {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 11px;
-  background: var(--unknown-soft);
-  color: var(--unknown);
-  white-space: nowrap;
-}
-
-.tag-ok,
-.finding.is-pass .tag {
-  background: var(--ok-soft);
-  color: var(--ok);
-}
-
-.tag-fail,
-.finding.is-fail .tag {
-  background: var(--fail-soft);
-  color: var(--fail);
-}
-
-/* --------------------------------------------------------------------------
-   table
-   -------------------------------------------------------------------------- */
-
-.table-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.board {
-  width: 100%;
-  min-width: 1080px;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-.board thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--line-strong);
-  padding: 12px 14px;
-  text-align: left;
-  vertical-align: bottom;
-  font-size: 12px;
-  font-weight: 640;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.th-sub {
-  display: block;
-  margin-top: 3px;
-  font-size: 10.5px;
   letter-spacing: 0.04em;
-  text-transform: none;
-  color: var(--faint);
-  font-weight: 500;
-}
-
-.board td {
-  padding: 14px;
-  vertical-align: top;
-  border-bottom: 1px solid var(--line);
-}
-
-.col-server {
-  width: 22%;
-}
-
-.col-outcome {
-  width: 17%;
-}
-
-.col-interval {
-  width: 21%;
-}
-
-.state-row td {
-  padding: 26px 14px;
-  color: var(--muted);
-}
-
-.state-row.is-error td {
-  color: var(--fail);
-}
-
-/* band rows: the ranking scope, stated in the table rather than in a footnote */
-
-.band-row th {
-  position: static;
-  background: var(--bg-tint);
-  border-top: 1px solid var(--line-strong);
-  border-bottom: 1px solid var(--line);
-  padding: 10px 14px;
-  text-align: left;
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  text-transform: none;
-  color: var(--text-soft);
-  white-space: normal;
-}
-
-.band-title {
-  font-family: var(--mono);
-  font-weight: 640;
-  margin-right: 12px;
-}
-
-.band-note {
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.band-refused th {
-  background: var(--refuse-tint);
-  border-left: 3px solid var(--refuse);
-}
-
-/* row states */
-
-.run-row td {
-  transition: background-color 120ms ease;
-}
-
-.run-row:hover td {
-  background: var(--bg-tint);
-}
-
-.run-row.is-tied .cell-server {
-  border-left: 3px solid var(--band);
-  background: var(--tie-tint);
-}
-
-.run-row.is-refused-row .cell-server {
-  border-left: 3px solid var(--refuse);
-}
-
-.run-row.is-refused-row td {
-  background: var(--refuse-tint);
-}
-
-.run-row.is-refused-row:hover td {
-  background: var(--refuse-soft);
-}
-
-.run-row.is-open td {
-  border-bottom-color: transparent;
-}
-
-/* server cell */
-
-.rank-chip {
-  display: inline-block;
-  margin-bottom: 7px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--line-strong);
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.rank-solo {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.rank-tied {
-  border-color: var(--accent);
-  color: var(--accent);
-  border-style: dashed;
-}
-
-.rank-none {
-  border-style: dotted;
-  color: var(--faint);
-}
-
-.server-name {
-  font-size: 16px;
-  font-weight: 620;
-  letter-spacing: -0.01em;
-}
-
-/* which task generator built this row's suite: two versions are two
-   denominators, so the row carries it whether or not it is ranked */
-
-.gen-chip {
-  display: inline-block;
-  margin-top: 5px;
-  padding: 1px 7px;
+  color: var(--ink-quiet);
+  background: var(--record);
+  border: 1px solid var(--rule);
   border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  font-family: var(--mono);
-  font-size: 10.5px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow-wrap: anywhere;
-}
-
-.gen-chip-unknown {
-  border-style: dotted;
-  color: var(--faint);
-}
-
-.server-url {
-  margin-top: 2px;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-
-.server-meta {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-/* which RUN this row is: a server can be driven again at any time, so the row
-   carries the suite it drove and when the drive started */
-
-.run-identity {
-  margin-top: 6px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--muted);
-  overflow-wrap: anywhere;
-}
-
-/* reruns are separate attempts, marked on every row they produced */
-
-.rerun-chip {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px dashed var(--line-strong);
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.rerun-siblings {
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.5;
-  color: var(--faint);
-  overflow-wrap: anywhere;
-}
-
-/* outcome cell */
-
-.mini-figures {
-  display: grid;
-  grid-template-columns: auto auto;
-  gap: 2px 10px;
-  margin: 10px 0 0;
-  font-size: 12.5px;
-}
-
-.mini-figures dt {
-  color: var(--muted);
-}
-
-.mini-figures dd {
-  margin: 0;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-soft);
-}
-
-.runner-note {
-  margin-top: 8px;
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.refusal-outcome {
-  margin-top: 9px;
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 620;
-  color: var(--refuse);
-  letter-spacing: 0.02em;
-}
-
-.refusal-gate {
-  margin-top: 2px;
-  font-size: 13px;
-  color: var(--text-soft);
-}
-
-.refusal-reason {
-  margin-top: 6px;
-}
-
-.refusal-reason code {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 1px 6px;
-}
-
-.refusal-counts {
-  margin-top: 6px;
-  font-family: var(--mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
-/* the one measured comparison that made the refusal, small enough for a cell */
-
-.refusal-teaser {
-  margin-top: 7px;
-  padding: 4px 8px;
-  border: 1px solid var(--refuse);
-  border-radius: var(--radius);
-  background: var(--surface);
-  font-family: var(--mono);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-soft);
-  max-width: 30ch;
-}
-
-/* interval cell: the interval is the finding, so it gets the drawing */
-
-.interval {
-  padding-top: 4px;
-}
-
-.interval-track {
-  position: relative;
-  height: 12px;
-  border-radius: 999px;
-  background: var(--track);
-  background-image: linear-gradient(90deg, transparent calc(50% - 1px), var(--surface) calc(50% - 1px), var(--surface) calc(50% + 1px), transparent calc(50% + 1px));
-}
-
-.interval-band {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: var(--low, 0%);
-  right: calc(100% - var(--high, 100%));
-  background: var(--band);
-  opacity: 0.42;
-  border-radius: 999px;
-}
-
-.interval-point {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: var(--rate, 0%);
-  width: 2px;
-  margin-left: -1px;
-  background: var(--band);
-  border-radius: 1px;
-}
-
-.interval-nums {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-  margin-top: 9px;
-}
-
-.interval-rate {
-  font-family: var(--mono);
-  font-size: 17px;
-  font-weight: 620;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-
-.interval-ci {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
-}
-
-.interval-kn {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.interval-overlap {
-  margin-top: 7px;
-  padding-left: 8px;
-  border-left: 2px solid var(--band);
-  font-size: 11.5px;
-  color: var(--muted);
-  max-width: 36ch;
-}
-
-.no-score {
-  font-family: var(--mono);
-  font-size: 15px;
-  font-weight: 620;
-  color: var(--refuse);
-}
-
-.no-score-why {
-  margin-top: 5px;
-  font-size: 12.5px;
-  color: var(--text-soft);
-  max-width: 34ch;
-}
-
-/* probe cells */
-
-.spec-version {
-  font-family: var(--mono);
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
-}
-
-.spec-era {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.hygiene-count {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ok);
-}
-
-.hygiene-count.has-failures {
-  color: var(--text-soft);
-}
-
-.hygiene-unknown {
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--faint);
-}
-
-.hygiene-list {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  display: grid;
-  gap: 5px;
-}
-
-.hygiene-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.finding-id {
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--fail);
-  overflow-wrap: anywhere;
-}
-
-.finding.is-pass .finding-id {
-  color: var(--text-soft);
-}
-
-.finding.is-unknown .finding-id {
-  color: var(--muted);
-}
-
-.evidence {
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-.is-missing {
-  color: var(--faint);
-  font-style: italic;
-  font-size: 12.5px;
-}
-
-.cred-delta {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--refuse);
-}
-
-/* replay cell */
-
-.replay-link {
-  display: inline-block;
-  padding: 5px 11px;
-  border: 1px solid var(--accent);
-  border-radius: var(--radius);
-  font-size: 13px;
-  text-decoration: none;
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-.replay-link:hover {
-  background: var(--accent-soft);
-}
-
-.replay-note {
-  margin-top: 6px;
-  font-size: 11.5px;
-  color: var(--faint);
-}
-
-.toggle {
-  margin-top: 10px;
-  display: block;
-  padding: 4px 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-  color: var(--text-soft);
-  font: inherit;
-  font-size: 12.5px;
   cursor: pointer;
 }
 
-.toggle:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+.filter:hover {
+  border-color: var(--rule-strong);
+  color: var(--ink);
 }
 
-.toggle-refused {
-  border-color: var(--refuse);
-  color: var(--refuse);
-  font-weight: 600;
+.filter[aria-pressed="true"] {
+  color: var(--record);
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
-.toggle-refused:hover {
-  border-color: var(--refuse);
-  color: var(--refuse);
-  background: var(--refuse-soft);
+.board-order {
+  max-width: 76ch;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--ink-quiet);
 }
 
-.legend-key {
-  display: inline-block;
-  padding: 1px 7px;
-  border: 1px solid var(--refuse);
-  border-radius: var(--radius);
+/* The column strip. It sticks because there is no scroll container anywhere on
+   this page: the board is a grid, not a table with a horizontal scroller, so
+   position: sticky finally resolves against the viewport. */
+.board-head {
+  display: none;
+}
+
+@media (min-width: 1080px) {
+  .board-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: grid;
+    grid-template-columns: var(--board-cols);
+    gap: 0 var(--board-gap);
+    align-items: end;
+    margin-top: 20px;
+    padding: 12px 0 8px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule-strong);
+  }
+}
+
+.bh {
   font-size: 12px;
-  color: var(--refuse);
-  white-space: nowrap;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.bh-result {
+  display: block;
+}
+
+.bh-label {
+  display: block;
+}
+
+.axis {
+  position: relative;
+  display: block;
+  height: 20px;
+  margin-top: 6px;
+}
+
+.axis-line {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+.axis-tick {
+  position: absolute;
+  top: 4px;
+  left: calc(var(--at) * (100% - 3ch));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-faint);
+}
+
+.board {
+  margin-top: 8px;
+}
+
+.group {
+  margin-top: 28px;
+  padding-left: 14px;
+  border-left: 3px solid var(--refuse);
+}
+
+.group[data-family="scored"] {
+  border-left-color: var(--measure);
+}
+
+.group[data-family="unclassified"] {
+  border-left-color: var(--ink-faint);
+}
+
+/* The filter is a view choice, never a silence: the ledger above always shows
+   every count, whatever is showing here. */
+.board[data-filter="free"] .group:not([data-family="free"]),
+.board[data-filter="cheap"] .group:not([data-family="cheap"]),
+.board[data-filter="paid"] .group:not([data-family="paid"]),
+.board[data-filter="scored"] .group:not([data-family="scored"]),
+.board[data-filter="unclassified"] .group:not([data-family="unclassified"]) {
+  display: none;
+}
+
+.group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.group-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.group-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.group-note {
+  max-width: 72ch;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.recs {
+  margin-top: 10px;
 }
 
 /* --------------------------------------------------------------------------
-   detail panel
+   a run row
    -------------------------------------------------------------------------- */
 
-.detail-row > .detail-cell {
-  padding: 0 14px 20px;
-  background: var(--bg-tint);
-  border-bottom: 1px solid var(--line-strong);
-}
-
-.detail-inner {
+.rec {
   display: grid;
-  gap: 22px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  padding-top: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 14px 0 16px;
+  border-top: 1px solid var(--rule);
 }
 
-.panel-block h4 {
-  font-size: 12px;
-  letter-spacing: 0.07em;
+.rec:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+
+.rec.is-open {
+  background: var(--mark);
+  box-shadow: inset 3px 0 0 var(--ink);
+  padding-left: 12px;
+}
+
+/* Stacked: a printed form's two column layout, label in the gutter, value in the
+   field. Cheaper vertically than a label line above every value, and it is the
+   same reading order. */
+.fld {
+  display: grid;
+  grid-template-columns: 66px minmax(0, 1fr);
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+@media (min-width: 480px) {
+  .fld {
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 2px 12px;
+  }
+}
+
+.fld-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 8px;
+  color: var(--ink-quiet);
+  overflow-wrap: anywhere;
 }
 
-.panel-block h4 + h4 {
+@media (min-width: 480px) {
+  .fld-label {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+  }
+}
+
+/* Explicit placement, never auto-fit: the track count does not change with the
+   width, so nothing reflows into a different shape at a width nobody tested. */
+@media (min-width: 640px) and (max-width: 1079px) {
+  .rec {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 20px;
+    align-items: start;
+  }
+
+  .fld-run {
+    grid-area: 1 / 1 / 2 / 2;
+  }
+
+  .fld-result {
+    grid-area: 1 / 2 / 2 / 3;
+  }
+
+  .fld-decision {
+    grid-area: 2 / 1 / 3 / 3;
+  }
+
+  .fld-probes {
+    grid-area: 3 / 1 / 4 / 2;
+  }
+
+  .fld-cred {
+    grid-area: 3 / 2 / 4 / 3;
+  }
+
+  .fld-evidence {
+    grid-area: 4 / 1 / 5 / 3;
+  }
+}
+
+@media (min-width: 1080px) {
+  .rec {
+    grid-template-columns: var(--board-cols);
+    gap: 0 var(--board-gap);
+    align-items: start;
+    padding: 14px 0;
+  }
+
+  .fld {
+    display: block;
+  }
+
+  /* Above the stacking breakpoint the strip carries the labels visually. They
+     stay in the DOM on every row so assistive tech always hears which field it
+     is in. */
+  .fld-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+.fld-body {
+  min-width: 0;
+}
+
+.fld-body > * + * {
+  margin-top: 4px;
+}
+
+.rec-server {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.rec-url code,
+.rec-identity,
+.rec-siblings,
+.rec-attempt {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-quiet);
+  overflow-wrap: anywhere;
+}
+
+.rec-attempt {
+  color: var(--ink);
+}
+
+.rec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-block;
+  max-width: 100%;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-quiet);
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  /* Never nowrap. A chip that cannot wrap is a chip that pushes out of its
+     column and lands on top of the next one. */
+  overflow-wrap: anywhere;
+}
+
+.chip-unknown {
+  border-style: dashed;
+}
+
+.chip-fault {
+  color: var(--fault);
+  background: var(--fault-wash);
+  border-color: var(--fault);
+}
+
+.chip-cred {
+  color: var(--ink);
+}
+
+.chip-attempt {
+  color: var(--ink);
+  border-color: var(--rule-strong);
+}
+
+.rec-note {
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+/* --------------------------------------------------------------------------
+   the result well: the signature element
+   -------------------------------------------------------------------------- */
+
+.well {
+  padding: 6px 8px 8px;
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.well-track {
+  position: relative;
+  height: 26px;
+  overflow: hidden;
+  background: var(--record);
+  border: 1px solid var(--rule);
+}
+
+.well-grid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--at) * (100% - 1px));
+  width: 1px;
+  background: var(--rule);
+}
+
+.well-grid.is-edge {
+  background: var(--rule-strong);
+}
+
+/* Positioned with a unitless ratio against (100% - marker width), so a point
+   estimate of 1.0 sits inside the track instead of half outside it. */
+.well-band {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: calc(var(--low) * 100%);
+  right: calc(100% - var(--high) * 100%);
+  background: var(--measure-wash);
+  border-left: 2px solid var(--measure);
+  border-right: 2px solid var(--measure);
+}
+
+.well-point {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--rate) * (100% - 3px));
+  width: 3px;
+  background: var(--ink);
+}
+
+/* A refusal occupies the measurement's space at full width. The eye reads
+   "no number could be put here", never "empty cell", and the two states are
+   told apart by pattern and by text, not by colour alone. */
+.well-hold {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--record);
+  background-image: var(--hatch);
+}
+
+.well-code {
+  padding: 2px 6px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--refuse);
+  background: var(--record);
+  border: 1px solid var(--refuse);
+  border-radius: 2px;
+  overflow-wrap: anywhere;
+}
+
+.well-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+@media (min-width: 1080px) {
+  .well-axis {
+    display: none;
+  }
+}
+
+.well-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin-top: 6px;
+}
+
+.well-figure {
+  font-family: var(--font-mono);
+  font-size: 21px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.well-ci,
+.well-kn {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.well-kn {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-text);
+}
+
+/* --------------------------------------------------------------------------
+   the decision field
+   -------------------------------------------------------------------------- */
+
+.code {
+  display: inline-block;
+  max-width: 100%;
+  padding: 3px 7px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.25;
+  letter-spacing: 0.04em;
+  border-radius: 2px;
+  overflow-wrap: anywhere;
+}
+
+.code-hold {
+  color: var(--refuse);
+  background: var(--refuse-wash);
+  border: 1px solid var(--refuse);
+}
+
+.code-measure {
+  color: var(--measure);
+  background: var(--measure-wash);
+  border: 1px solid var(--measure);
+}
+
+.rec-gate {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.rec-reason code {
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.rec-decisive {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.rec-counts {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+/* --------------------------------------------------------------------------
+   probes and credential
+   -------------------------------------------------------------------------- */
+
+.probe-spec {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.probe-key {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.probe-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.probe-era,
+.probe-unknown {
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.probe-count {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.probe-count.has-fault {
+  color: var(--fault);
+}
+
+.probe-faults {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* --------------------------------------------------------------------------
+   evidence actions
+   -------------------------------------------------------------------------- */
+
+.fld-evidence .fld-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.act {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 0 !important;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+@media (min-width: 1080px) {
+  .fld-evidence .fld-body {
+    flex-direction: column;
+  }
+}
+
+.act-replay {
+  color: var(--measure);
+  background: var(--record);
+  border: 1px solid var(--measure);
+}
+
+.act-record {
+  color: var(--record);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+}
+
+.act:hover {
+  text-decoration: underline;
+}
+
+.board-foot {
+  max-width: 76ch;
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+/* --------------------------------------------------------------------------
+   ZONE D: the run record
+   -------------------------------------------------------------------------- */
+
+.record-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--scrim);
+}
+
+@media (min-width: 1100px) {
+  .record-scrim {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1099px) {
+  body.has-record {
+    overflow: hidden;
+  }
+}
+
+.record {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--record);
+  border-left: 1px solid var(--rule);
+  animation: record-in 120ms ease-out;
+}
+
+@media (min-width: 1100px) {
+  .record {
+    inset: 0 0 0 auto;
+    width: min(560px, 100%);
+    box-shadow: var(--shadow);
+  }
+}
+
+@keyframes record-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .record {
+    animation: none;
+  }
+}
+
+.record-inner {
+  padding: 20px var(--pad) 56px;
+}
+
+.record-head {
+  padding-bottom: 18px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.record-close {
+  min-height: 44px;
+  padding: 8px 14px;
+  font-family: var(--font-text);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--record);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.record-close:hover {
+  background: var(--mark);
+}
+
+.record-eyebrow {
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.record-title {
+  margin-top: 4px;
+  font-size: 28px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.record-url code,
+.record-id {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-quiet);
+  overflow-wrap: anywhere;
+}
+
+.record-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.tier {
+  padding-top: 22px;
+  margin-top: 22px;
+  border-top: 1px solid var(--rule);
+}
+
+.tier-1 {
+  border-top: 0;
+}
+
+.tier > * + * {
+  margin-top: 10px;
+}
+
+.tier-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.tier-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.tier h4 {
   margin-top: 18px;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
 }
 
-/* the refusal story: the panel block that says what the gate actually saw */
-
-.panel-refusal {
-  grid-column: 1 / -1;
-  border-left: 3px solid var(--refuse);
-  padding-left: 14px;
+.tier-note {
+  font-size: 13px;
+  color: var(--ink-quiet);
 }
 
-.refusal-lede {
+.verdict {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 10px;
-  margin: 0 0 14px;
-  font-size: 13.5px;
-  color: var(--text-soft);
 }
 
-.refusal-lede-text {
-  font-weight: 600;
+.verdict-note {
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.verdict-gate {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.verdict-reason code {
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.headline {
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--ink);
 }
 
 .story {
-  display: grid;
-  gap: 10px;
-  padding: 14px 0 0;
-  max-width: 92ch;
+  padding: 14px;
+  margin-top: 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
 }
 
-.story + .story {
-  margin-top: 16px;
-  border-top: 1px dashed var(--line-strong);
-}
-
-.story.is-secondary {
-  opacity: 0.92;
-}
-
-/* an outcome whose meaning is read against the record that carries it, rather
-   than against the harness that happens to be current */
-
-.story.outcome-reading {
-  opacity: 1;
-  border-left: 2px solid var(--line-strong);
-  padding-left: 12px;
+.story > * + * {
+  margin-top: 8px;
 }
 
 .story-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px 10px;
-  font-size: 11.5px;
+  gap: 4px 10px;
 }
 
 .story-gate {
-  font-family: var(--mono);
-  font-weight: 640;
-  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--refuse);
 }
 
 .story-tier,
 .story-role {
-  color: var(--muted);
-}
-
-.story-role {
-  font-style: italic;
+  font-size: 12px;
+  color: var(--ink-quiet);
 }
 
 .story-reason {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 1px 6px;
-  color: var(--refuse);
+  font-size: 12px;
+  color: var(--ink-quiet);
 }
 
-.story-headline {
-  margin: 0;
-  font-size: clamp(15px, 1.6vw, 17.5px);
-  line-height: 1.4;
-  font-weight: 560;
-  letter-spacing: -0.008em;
-  color: var(--text);
-  text-wrap: pretty;
+.story-line,
+.story-counts,
+.story-limitation,
+.story-explain {
+  font-size: 13px;
+  color: var(--ink-quiet);
 }
 
 .story-line {
-  margin: 0;
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: var(--text-soft);
+  color: var(--ink);
 }
 
-.story-counts {
-  margin: 0;
-  font-family: var(--mono);
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  border-radius: 2px;
+  border: 1px solid currentColor;
 }
 
-.story-figures {
+/* An annotation on a paragraph gets its own line, the way a marginal note on a
+   printed record does, rather than sitting inside the first line of prose. */
+.story-limitation .tag,
+.story-explain .tag {
+  display: block;
+  width: fit-content;
+  margin: 0 0 4px;
+}
+
+.tag-ok {
+  color: var(--measure);
+  background: var(--measure-wash);
+}
+
+.tag-hold {
+  color: var(--refuse);
+  background: var(--refuse-wash);
+}
+
+.tag-fault {
+  color: var(--fault);
+  background: var(--fault-wash);
+}
+
+.tag-unknown,
+.tag-gap,
+.tag-verbatim {
+  color: var(--ink-quiet);
+  background: var(--paper);
+}
+
+/* --------------------------------------------------------------------------
+   figures, meters, tables inside a record
+   -------------------------------------------------------------------------- */
+
+.figures {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 8px 20px;
-  margin: 2px 0;
-  padding: 10px 0;
-  border-block: 1px solid var(--line);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
 }
 
-.story-figures dt {
-  font-size: 11px;
+@media (max-width: 419px) {
+  .figures {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.figure {
+  padding: 8px 10px;
+  background: var(--record);
+}
+
+.figure dt {
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink-quiet);
 }
 
-.story-figures dd {
-  margin: 1px 0 0;
-  font-family: var(--mono);
+.figure dd {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
   font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
-.story-limitation,
-.story-explain {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--line-strong);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  padding: 9px 12px;
-}
-
-.story-limitation {
-  border-left-color: var(--refuse);
-}
-
-.story-limitation-tag,
-.story-explain-tag {
-  display: block;
-  margin-bottom: 3px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--faint);
-}
-
-.story-evidence {
-  margin: 0;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-
-.story-notes {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  font-size: 12.5px;
-  color: var(--muted);
-  display: grid;
-  gap: 4px;
-}
-
-/* comparison bars: decorative only, every value is written beside them */
-
 .meter {
-  display: grid;
-  gap: 6px;
-  margin: 2px 0;
+  padding: 12px;
+  background: var(--record);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
 }
 
 .meter-row {
   display: grid;
-  grid-template-columns: minmax(96px, 26%) minmax(80px, 1fr) minmax(96px, auto);
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  padding: 6px 0;
+}
+
+@media (min-width: 480px) {
+  .meter-row {
+    grid-template-columns: minmax(0, 13ch) minmax(0, 1fr) minmax(0, 16ch);
+    align-items: center;
+    gap: 10px;
+  }
 }
 
 .meter-label {
   font-size: 12px;
-  color: var(--text-soft);
+  color: var(--ink-quiet);
   overflow-wrap: anywhere;
 }
 
 .meter-track {
   position: relative;
   height: 12px;
-  border-radius: 3px;
-  background: var(--track);
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--rule);
 }
 
 .meter-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--value, 0%);
-  min-width: 2px;
-  background: var(--unknown);
-  border-radius: 3px;
-}
-
-.meter-null .meter-fill {
-  background: var(--unknown);
-  opacity: 0.55;
-}
-
-.meter-worst .meter-fill {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--value) * 100%);
   background: var(--refuse);
 }
 
 .meter-agent .meter-fill {
-  background: var(--band);
-  opacity: 0.75;
+  background: var(--measure);
 }
 
 .meter-threshold {
   position: absolute;
-  top: -2px;
-  bottom: -2px;
-  left: var(--at, 0%);
+  top: 0;
+  bottom: 0;
+  left: calc(var(--at) * (100% - 2px));
   width: 2px;
-  margin-left: -1px;
-  background: var(--text);
-  opacity: 0.75;
+  background: var(--ink);
 }
 
 .meter-value {
-  font-family: var(--mono);
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  text-align: right;
+  color: var(--ink);
 }
 
 .meter-caption {
-  margin: 2px 0 0;
-  font-size: 11.5px;
-  color: var(--muted);
-}
-
-.panel-dl {
-  display: grid;
-  grid-template-columns: minmax(120px, auto) 1fr;
-  gap: 3px 14px;
-  margin: 0;
-  font-size: 12.5px;
-}
-
-.panel-dl dt {
-  color: var(--muted);
-}
-
-.panel-dl dd {
-  margin: 0;
-  font-family: var(--mono);
+  margin-top: 8px;
   font-size: 12px;
-  overflow-wrap: anywhere;
+  color: var(--ink-quiet);
+}
+
+/* A wide table scrolls itself instead of escaping the record it sits in. */
+/* A scroller with no edge affordance reads as a clipped table rather than a
+   scrollable one. The mask fades the right edge only while there is more to
+   reach, so a table that already fits shows no false hint. */
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  scroll-timeline: --twrap x;
+}
+
+@supports (animation-timeline: scroll(x)) {
+  .table-wrap {
+    animation: table-edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+
+  @keyframes table-edge-fade {
+    0% {
+      mask-image: linear-gradient(to right, #000 88%, transparent 100%);
+    }
+    100% {
+      mask-image: linear-gradient(to right, #000 100%, #000 100%);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .table-wrap {
+    animation: none;
+    mask-image: none;
+  }
 }
 
 .panel-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: 13px;
+}
+
+.panel-table th,
+.panel-table td {
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rule);
 }
 
 .panel-table th {
-  text-align: left;
-  font-size: 11px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--faint);
-  border-bottom: 1px solid var(--line);
-  padding: 4px 8px 4px 0;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+  white-space: nowrap;
+  background: var(--paper);
 }
 
 .panel-table td {
-  padding: 5px 8px 5px 0;
-  border-bottom: 1px solid var(--line);
-  vertical-align: top;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .failure-classes {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--fail);
-}
-
-.panel-note {
-  margin: 10px 0 0;
   font-size: 12px;
-  color: var(--muted);
-  max-width: 60ch;
+  color: var(--ink-quiet);
 }
 
-/* what the run cost, and the extension ledger: both span the panel because
-   both are read as sentences rather than scanned as a column */
-
-.panel-cost,
-.panel-extensions {
-  grid-column: 1 / -1;
+.panel-dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  border: 1px solid var(--rule);
 }
 
-/* report.methods, verbatim: the harness's own divergences and known biases.
-   Collapsible and open, so a reader can fold it away but is never asked to
-   go looking for the disclosure that qualifies every number above it. */
-
-.panel-methods {
-  grid-column: 1 / -1;
+@media (min-width: 520px) {
+  .panel-dl {
+    /* Capped, so the longest label cannot starve the monospace value column that
+       carries suite hashes, timestamps and run ids. */
+    grid-template-columns: minmax(0, 0.42fr) minmax(0, 1fr);
+  }
 }
 
-.methods-details {
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-
-.methods-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  cursor: pointer;
-  list-style: none;
-  padding: 2px 0;
-}
-
-.methods-summary::-webkit-details-marker {
-  display: none;
-}
-
-.methods-summary::before {
-  content: "-";
-  font-family: var(--mono);
-  color: var(--faint);
-}
-
-.methods-details:not([open]) .methods-summary::before {
-  content: "+";
-}
-
-.methods-summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-
-.methods-title {
+.panel-dl dt {
+  padding: 7px 10px 0;
   font-size: 12px;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--ink-quiet);
+  background: var(--record);
+  border-top: 1px solid var(--rule);
 }
 
-.methods-count {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.methods-registered {
-  margin-top: 10px;
-}
-
-.methods-registered dd {
-  font-family: var(--sans);
-  font-size: 12.5px;
-  color: var(--text-soft);
-  max-width: 78ch;
-}
-
-.methods-list {
-  margin: 8px 0 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--muted);
-  max-width: 78ch;
-}
-
-.finding-list,
-.rewrite-list,
-.trace-list {
-  list-style: none;
+.panel-dl dd {
   margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
+  padding: 0 10px 7px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--record);
+  overflow-wrap: anywhere;
 }
 
-.finding {
-  border-left: 2px solid var(--line-strong);
-  padding-left: 10px;
+.panel-dl dt:first-of-type {
+  border-top: 0;
 }
 
-.finding.is-fail {
-  border-left-color: var(--fail);
+@media (min-width: 520px) {
+  .panel-dl dt,
+  .panel-dl dd {
+    padding: 7px 10px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .panel-dl dt:first-of-type,
+  .panel-dl dt:first-of-type + dd {
+    border-top: 0;
+  }
 }
 
-.finding.is-pass {
-  border-left-color: var(--ok);
+.finding-list > li {
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
 }
 
 .finding-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 4px 8px;
+}
+
+.finding-id {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .finding-detail {
-  margin: 3px 0 0;
-  font-size: 12.5px;
-  color: var(--text-soft);
-  max-width: 66ch;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.evidence-line {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+/* Every evidence link is a real target, not a five pixel word in a sentence. */
+.evidence {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 10px;
+  margin-left: 2px;
+  font-size: 13px;
+  color: var(--measure);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.evidence:hover {
+  border-color: var(--measure);
+  text-decoration: underline;
+}
+
+.evidence.is-missing {
+  color: var(--ink-quiet);
+  border-style: dashed;
+}
+
+.trace-list > li {
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.trace-key {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.trace-link,
+.sibling-list > li {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Evidence links are the whole point of a record, so they get the same 44px
+   target every other control on the page meets rather than the 38px that
+   wrapped text happened to produce. */
+.trace-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-block: 4px;
+}
+
+.sibling-list > li {
+  padding: 6px 0;
+  color: var(--ink-quiet);
+  border-top: 1px solid var(--rule);
+}
+
+.rewrite-list > li {
+  padding: 10px 0;
+  border-top: 1px solid var(--rule);
 }
 
 .rewrite-tool {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 620;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
 }
 
 .rewrite-current,
 .rewrite-proposed,
 .rewrite-why {
-  margin: 3px 0 0;
-  font-size: 12.5px;
-  color: var(--text-soft);
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--ink-quiet);
 }
 
-.trace-list {
+.methods-list > li {
+  padding: 8px 0 8px 14px;
+  font-size: 13px;
+  color: var(--ink-quiet);
+  border-top: 1px solid var(--rule);
+  border-left: 2px solid var(--rule-strong);
+}
+
+.folds {
+  margin-top: 22px;
+}
+
+.fold {
+  border-top: 1px solid var(--rule);
+}
+
+.fold > *:not(summary) {
+  margin-top: 10px;
+}
+
+.fold-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-height: 44px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.fold-title {
+  font-family: var(--font-display);
+  font-weight: 700;
   font-size: 12px;
-  gap: 5px;
-  overflow-wrap: anywhere;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.fold-count {
+  font-size: 12px;
+  color: var(--ink-quiet);
+}
+
+.fold[open] {
+  padding-bottom: 16px;
+}
+
+.record-foot {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 2px solid var(--ink);
+}
+
+.record-foot-note {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--ink-quiet);
 }
 
 /* --------------------------------------------------------------------------
-   prose
+   methods
    -------------------------------------------------------------------------- */
 
-.table-foot,
-.notice {
-  margin: 14px 0 0;
-  font-size: 13px;
-  color: var(--muted);
-  max-width: 88ch;
+.methods-zone {
+  padding: 40px 0 48px;
+  background: var(--record);
+  border-top: 1px solid var(--rule);
 }
 
-#methods p,
-#methods li {
+.methods-zone h3 {
   max-width: 76ch;
-  color: var(--text-soft);
+  margin-top: 34px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.methods-zone h4 {
+  margin-top: 12px;
   font-size: 15px;
 }
 
-#methods h3 {
-  margin-top: 30px;
-  font-size: 17px;
+.methods-zone p {
+  max-width: 76ch;
+  margin-top: 12px;
+  color: var(--ink-quiet);
 }
 
-#methods h4 {
-  font-size: 15px;
-  margin-bottom: 4px;
+.methods-zone .section-note {
+  color: var(--ink-quiet);
+}
+
+.toc {
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.toc ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.toc a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 4px 10px;
+  font-size: 13px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  text-decoration: none;
+}
+
+.toc a:hover {
+  border-color: var(--measure);
+  text-decoration: underline;
 }
 
 .position {
-  margin: 14px 0;
-  padding: 14px 18px;
-  border-left: 3px solid var(--accent);
-  background: var(--surface);
-  border-radius: 0 var(--radius) var(--radius) 0;
+  max-width: 68ch;
+  margin: 18px 0 0;
+  padding: 12px 16px;
+  background: var(--paper);
+  border-left: 3px solid var(--measure);
 }
 
 .position p {
   margin: 0;
   font-size: 17px;
-  color: var(--text);
-  letter-spacing: -0.008em;
+  color: var(--ink);
 }
 
 .position-note {
-  font-size: 13.5px;
-  color: var(--muted);
-}
-
-.divergences {
-  padding-left: 20px;
-  display: grid;
-  gap: 16px;
+  font-size: 13px;
 }
 
 .refusal-guide {
-  display: grid;
-  gap: 6px;
-  margin: 14px 0 0;
-  max-width: 78ch;
+  max-width: 76ch;
+  margin: 16px 0 0;
 }
 
 .refusal-guide dt {
-  margin-top: 12px;
-  font-weight: 620;
-  font-size: 15px;
-  color: var(--text);
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--refuse);
 }
 
 .refusal-guide dd {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--ink-quiet);
+}
+
+.divergences {
+  max-width: 76ch;
+  counter-reset: divergence;
+}
+
+.divergences > li {
+  margin-top: 18px;
+  padding-left: 40px;
+  position: relative;
+  counter-increment: divergence;
+}
+
+.divergences > li::before {
+  content: counter(divergence);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 28px;
+  padding: 2px 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 13px;
+  text-align: center;
+  color: var(--measure);
+  border: 1px solid var(--measure);
+  border-radius: 2px;
+}
+
+.disclosures,
+.standing-notes {
+  max-width: 76ch;
+  margin-top: 18px;
+}
+
+.disclosure,
+.standing-block {
+  margin-top: 14px;
+  padding: 14px 16px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--refuse);
+  border-radius: var(--radius);
+}
+
+.disclosure h4,
+.standing-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
   margin: 0;
-  padding-left: 14px;
-  border-left: 2px solid var(--line-strong);
-  font-size: 14.5px;
-  color: var(--text-soft);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
 
-.refusal-guide dd strong {
-  color: var(--text);
+.disclosure p {
+  margin-top: 8px;
+  font-size: 13px;
 }
 
-.divergences code {
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 1px 5px;
+.standing-gen {
+  font-family: var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.standing-count {
+  font-family: var(--font-text);
+  font-weight: 400;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-quiet);
 }
 
 .prior-art {
-  border-top: 1px solid var(--line);
-  padding-top: 14px;
-  font-size: 13.5px;
-  color: var(--muted);
-}
-
-.site-foot {
-  border-top: 1px solid var(--line);
-  padding-block: 22px 40px;
   font-size: 13px;
-  color: var(--muted);
-}
-
-.site-foot p {
-  margin: 0;
-  max-width: 80ch;
 }
 
 /* --------------------------------------------------------------------------
-   preferences
+   footer
    -------------------------------------------------------------------------- */
 
-@media (max-width: 640px) {
-  body {
-    font-size: 15px;
-  }
-
-  .board {
-    font-size: 13px;
-  }
-
-  .board td,
-  .board thead th {
-    padding: 11px 10px;
-  }
-
-  /* the bar is the redundant half of a meter row, so it is what gets dropped */
-  .meter-row {
-    grid-template-columns: 1fr auto;
-  }
-
-  .meter-track {
-    display: none;
-  }
-
-  .stat {
-    border-left-width: 3px;
-  }
+.site-foot {
+  padding: 28px 0 48px;
+  border-top: 1px solid var(--rule);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-  }
+.site-foot p {
+  max-width: 76ch;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--ink-quiet);
 }
 
-@media (prefers-contrast: more) {
-  :root {
-    --line: var(--line-strong);
-    --muted: var(--text-soft);
-    --faint: var(--muted);
-  }
+.issuing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 0 !important;
+}
+
+.issuing-label {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-quiet);
+}
+
+.issuing-sep {
+  color: var(--rule-strong);
 }

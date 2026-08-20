@@ -1366,6 +1366,23 @@ export function extensionFigures(ledger) {
   return figures;
 }
 
+/**
+ * The extension sequence, hung off a story as its own field rather than mixed
+ * into the story's prose.
+ *
+ * The sequence is an audit trail: it belongs below the deciding comparison, not
+ * inside it. Keeping it separate is what lets the run record put the comparison
+ * that decided the run at the top and the ledger that produced it further down,
+ * without either one being dropped or told twice.
+ */
+export function attachExtensionLedger(story, ledger) {
+  if (!story || !ledger) return story;
+  story.extensionLedger = ledger;
+  story.extensionLines = extensionSentences(ledger);
+  story.extensionFigures = extensionFigures(ledger);
+  return story;
+}
+
 function storyShell(record, isPrimary) {
   const detail = asObject(record && record.detail);
   return {
@@ -1380,7 +1397,11 @@ function storyShell(record, isPrimary) {
     sentences: [],
     figures: [],
     meter: null,
-    limitation: null
+    limitation: null,
+    /** Set only when this story's gate consumed extension batches. */
+    extensionLedger: null,
+    extensionLines: [],
+    extensionFigures: []
   };
 }
 
@@ -1687,10 +1708,7 @@ export function constructStory(run, record, isPrimary) {
   // When the gate consumed extensions, the pooled k of n on its own hides the
   // sequence that produced it. The whole sequence goes in, in order.
   const ledger = extensionLedgerOf(run, 'construct');
-  if (ledger) {
-    story.extensionLedger = ledger;
-    for (const line of extensionSentences(ledger)) story.sentences.push(line);
-  }
+  if (ledger) attachExtensionLedger(story, ledger);
   if (typeof detail.constructOracle === 'string') story.sentences.push(detail.constructOracle);
   if (errorRate !== null && maxErrorRate !== null) {
     story.sentences.push(
@@ -1702,8 +1720,7 @@ export function constructStory(run, record, isPrimary) {
     { label: 'tools advertised', value: fmtInt(advertised) },
     { label: 'tool calls on the tape', value: fmtInt(totals.calls) },
     { label: 'calls with no response', value: fmtInt(totals.pending) },
-    { label: 'error results', value: fmtInt(totals.errors) },
-    ...extensionFigures(ledger)
+    { label: 'error results', value: fmtInt(totals.errors) }
   ];
 
   if (k !== null && n !== null && n > 0) {
@@ -1751,16 +1768,13 @@ export function refusalStories(run) {
     else if (record.gate === 'construct') stories.push(constructStory(run, record, record === primary));
     else stories.push(genericStory(run, record, record === primary));
   }
-  // Any story whose gate consumed extensions and did not already tell that
+  // Any story whose gate consumed extensions and did not already carry that
   // sequence gets it here, so no builder can quietly drop it by being the one
   // that handles a gate nobody thought about.
   for (const story of stories) {
     if (story.extensionLedger || !story.gate) continue;
     const ledger = extensionLedgerOf(run, story.gate);
-    if (!ledger) continue;
-    story.extensionLedger = ledger;
-    for (const line of extensionSentences(ledger)) story.sentences.push(line);
-    story.figures = [...story.figures, ...extensionFigures(ledger)];
+    if (ledger) attachExtensionLedger(story, ledger);
   }
   return stories;
 }
@@ -1946,6 +1960,322 @@ export function intervalAriaLabel(interval) {
 }
 
 // ---------------------------------------------------------------------------
+// outcome families: the cost ladder
+//
+// The gates run cheapest first, and that order is information rather than
+// decoration: it says which checks caught the most. A run's family is read from
+// the cost tier the harness recorded on the gate that stopped it. When a record
+// does not carry that field the run goes in its own bucket and the bucket says
+// so, because deriving the tier from a table of gate names on this page would be
+// this page asserting something the record did not.
+// ---------------------------------------------------------------------------
+
+/** Ledger order: the ladder, cheapest first. */
+export const LEDGER_ORDER = ['free', 'cheap', 'paid', 'unclassified', 'scored'];
+
+/** Board order: the runs that produced a number first, then the ladder. */
+export const BOARD_ORDER = ['scored', 'free', 'cheap', 'paid', 'unclassified'];
+
+export const FAMILY_LABELS = {
+  scored: 'Reached a score',
+  free: 'Free gate stopped it',
+  cheap: 'Cheap gate stopped it',
+  paid: 'Paid gate stopped it',
+  unclassified: 'Stopped, cost tier not recorded'
+};
+
+/** The same families, short enough for a control. The full label is the name. */
+export const FAMILY_SHORT = {
+  scored: 'Scored',
+  free: 'Free gate',
+  cheap: 'Cheap gate',
+  paid: 'Paid gate',
+  unclassified: 'Tier not recorded'
+};
+
+/**
+ * One line per family, about the tier rather than about any server. Each is
+ * true of every run in its family by construction, which is the only kind of
+ * sentence this page is willing to print above a group of rows.
+ */
+export const FAMILY_NOTES = {
+  scored: 'Every gate passed, so a first-try rate exists and is drawn on the axis.',
+  free: 'Deterministic checks that spend no model tokens at all. They run first, and they stop a run before it can cost anything.',
+  cheap: 'Null model baselines: what the same task suite is worth with no server in the loop. Cheap to run, and they run before the paid tier.',
+  paid: 'The one paid gate: a reference agent that has been handed the answer key still has to reach it through the server.',
+  unclassified:
+    'These records name the gate that stopped the run but not its cost tier, so they are counted apart rather than folded into a tier this page would have to guess at.'
+};
+
+/**
+ * Which family a run belongs to, read from its own record.
+ * `tier` is null unless the record states one.
+ */
+export function outcomeFamilyOf(run) {
+  if (!run || typeof run !== 'object') return { key: 'unclassified', tier: null, gate: null, gateLabel: null, outcome: 'UNKNOWN_OUTCOME' };
+  const outcome = typeof run.outcome === 'string' ? run.outcome : 'UNKNOWN_OUTCOME';
+  if (run.outcome === 'SCORED') return { key: 'scored', tier: null, gate: null, gateLabel: null, outcome };
+  const refusal = refusalOf(run);
+  const tier = refusal && (refusal.costTier === 'free' || refusal.costTier === 'cheap' || refusal.costTier === 'paid')
+    ? refusal.costTier
+    : null;
+  return {
+    key: tier || 'unclassified',
+    tier,
+    gate: refusal ? refusal.gate : null,
+    gateLabel: refusal ? refusal.gateLabel : null,
+    outcome
+  };
+}
+
+/** Runs bucketed by family, in a given order, empty families dropped. */
+export function familyBuckets(runs, order) {
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  const buckets = new Map();
+  for (const run of usable) {
+    const family = outcomeFamilyOf(run);
+    if (!buckets.has(family.key)) buckets.set(family.key, []);
+    buckets.get(family.key).push(run);
+  }
+  const keys = [...(order || LEDGER_ORDER)];
+  for (const key of buckets.keys()) if (!keys.includes(key)) keys.push(key);
+  return keys
+    .filter((key) => buckets.has(key))
+    .map((key) => {
+      const rows = buckets.get(key);
+      const codes = [];
+      for (const run of rows) {
+        const outcome = typeof run.outcome === 'string' ? run.outcome : 'UNKNOWN_OUTCOME';
+        const found = codes.find((c) => c.code === outcome);
+        if (found) found.count += 1;
+        else codes.push({ code: outcome, count: 1 });
+      }
+      codes.sort((a, b) => b.count - a.count || a.code.localeCompare(b.code));
+      const gates = [];
+      for (const run of rows) {
+        const label = outcomeFamilyOf(run).gateLabel;
+        if (label && !gates.includes(label)) gates.push(label);
+      }
+      const generators = [];
+      for (const run of rows) {
+        const version = generatorVersionOf(run);
+        if (!generators.includes(version)) generators.push(version);
+      }
+      return {
+        key,
+        label: FAMILY_LABELS[key] || key,
+        note: FAMILY_NOTES[key] || null,
+        count: rows.length,
+        codes,
+        gates,
+        generators,
+        runs: rows
+      };
+    });
+}
+
+/**
+ * Whether anything separates the scored runs.
+ *
+ * A position would only be honest if one interval sat entirely above another.
+ * This reports which pairs are separated, if any, so the page can state the
+ * situation from the intervals rather than from a chip claiming a tie.
+ */
+export function scoredSeparation(runs) {
+  const rows = rankRuns(Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : []);
+  const separated = [];
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = 0; j < rows.length; j++) {
+      if (i === j) continue;
+      if (separates(rows[i].interval, rows[j].interval)) {
+        separated.push({ above: slugOf(rows[i].run), below: slugOf(rows[j].run) });
+      }
+    }
+  }
+  const pairs = (rows.length * (rows.length - 1)) / 2;
+  let line;
+  if (rows.length === 0) line = 'No run in this pass reached a score, so there is nothing on the axis yet.';
+  else if (rows.length === 1) line = 'One run reached a score, so there is nothing to compare it with.';
+  else if (separated.length === 0) {
+    line = `Nothing separates these ${rows.length} runs: all ${pairs} pairs of 95% intervals overlap, so this page prints no order for them. The axis is the comparison.`;
+  } else {
+    line = `${separated.length} of ${pairs} ${pairs === 1 ? 'pair is' : 'pairs are'} separated, which means one interval lies entirely above the other: ${separated
+      .map((pair) => `${pair.above} above ${pair.below}`)
+      .join('; ')}. Every other pair overlaps and is printed in no order.`;
+  }
+  return { rows, separated, pairs, allOverlap: rows.length > 1 && separated.length === 0, line };
+}
+
+/** The bands the scored runs sit in: one runner model and one task generator each. */
+export function scoredBands(runs) {
+  return rankGroups(Array.isArray(runs) ? runs : []).map((band) => ({
+    runnerModel: band.runnerModel,
+    generatorVersion: band.generatorVersion,
+    count: band.rows.length
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// addressable run records
+// ---------------------------------------------------------------------------
+
+/** A url safe key for one run, derived from what the record carries. */
+export function recordIdOf(run) {
+  const identity = runIdentityOf(run);
+  const base = identity.runId || `${identity.slug}-${identity.suitePrefix || 'no-suite'}`;
+  const safe = String(base).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return safe.length > 0 ? safe : 'run';
+}
+
+/**
+ * Every run under a stable, unique key, so a finding has a permalink.
+ * Duplicate keys are suffixed rather than collapsed: two runs are two records.
+ */
+export function indexRuns(runs) {
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  const byId = new Map();
+  const keys = new Map();
+  for (const run of usable) {
+    const base = recordIdOf(run);
+    let key = base;
+    let n = 2;
+    while (byId.has(key)) key = `${base}-${n++}`;
+    byId.set(key, run);
+    keys.set(run, key);
+  }
+  return { byId, keyFor: (run) => keys.get(run) || null, size: byId.size };
+}
+
+// ---------------------------------------------------------------------------
+// standing method notes
+//
+// The harness writes its method notes onto every run it produces, so most of
+// them are byte identical across every row. Printing them once per run buried
+// the notes that actually differ under thousands of repeated words. Notes a
+// generator records on EVERY one of its runs are published once, in Methods,
+// verbatim; a run record shows the notes that are its own and says how many
+// standing notes it also carries. Nothing is dropped, nothing is rewritten.
+// ---------------------------------------------------------------------------
+
+export function methodNotesOf(run) {
+  return Array.isArray(run && run.methods) ? run.methods.filter((n) => typeof n === 'string' && n.length > 0) : [];
+}
+
+/** Map of generator version to the notes every run of that generator carries. */
+export function standingNotes(runs) {
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  const byGenerator = new Map();
+  for (const run of usable) {
+    const version = generatorVersionOf(run);
+    if (!byGenerator.has(version)) byGenerator.set(version, []);
+    byGenerator.get(version).push(run);
+  }
+  const out = new Map();
+  for (const [version, group] of byGenerator) {
+    // A note is standing only if more than one run shares it. With a single run
+    // of a generator there is nothing to deduplicate and the note is its own.
+    if (group.length < 2) {
+      out.set(version, { generator: version, runs: group.length, notes: [] });
+      continue;
+    }
+    const lists = group.map((run) => methodNotesOf(run));
+    const common = [...new Set(lists[0])].filter((note) => lists.every((list) => list.includes(note)));
+    out.set(version, { generator: version, runs: group.length, notes: common });
+  }
+  return out;
+}
+
+/** The notes that belong to this run alone, plus how many standing ones it carries. */
+export function ownMethodNotes(run, standing) {
+  const generator = generatorVersionOf(run);
+  const entry = standing instanceof Map ? standing.get(generator) : null;
+  const common = entry && Array.isArray(entry.notes) ? entry.notes : [];
+  const notes = methodNotesOf(run);
+  const own = notes.filter((note) => !common.includes(note));
+  return { generator, own, standing: notes.length - own.length, total: notes.length };
+}
+
+// ---------------------------------------------------------------------------
+// the one decisive number on a row
+// ---------------------------------------------------------------------------
+
+/** The scored equivalent of `refusalTeaser`: what the run actually did. */
+export function scoredTeaser(run) {
+  const interval = firstTryInterval(run);
+  if (!interval) return null;
+  const score = scoreOf(run) || {};
+  const parts = [`${interval.k} of ${interval.n} tasks on the first try`];
+  const calls = finite(score.meanCallsPerCompletedTask);
+  if (calls !== null) parts.push(`${fmtNum(calls, 1)} calls per completed task`);
+  return parts.join(', ');
+}
+
+/** The decisive comparison for any run, refused or scored. Null when absent. */
+export function decisiveLine(run) {
+  return run && run.outcome === 'SCORED' ? scoredTeaser(run) : refusalTeaser(run);
+}
+
+/** The count under the thesis, derived from the published records. */
+export function thesisCountLine(stats) {
+  if (!stats || stats.runs === 0) return 'No runs published yet.';
+  if (stats.refused === 0) {
+    return `${stats.runs} of ${stats.runs} published ${stats.runs === 1 ? 'run' : 'runs'} passed every gate.`;
+  }
+  return `${stats.refused} of ${stats.runs} published ${stats.runs === 1 ? 'run' : 'runs'} published no score.`;
+}
+
+/**
+ * The line above the board that says what a reader is about to look at.
+ *
+ * The shape of the pass, then the one thing a reader has to know before paying
+ * any scrolling for it: no row here takes a position. What separates the scored
+ * rows, or does not, is said once in the ledger and once on the scored group,
+ * where it applies, rather than a third time here.
+ */
+export function boardOrderLine(runs) {
+  const buckets = familyBuckets(runs, BOARD_ORDER);
+  const shape = buckets.map((bucket) => `${bucket.count} ${bucket.label.toLowerCase()}`).join(', ');
+  const separation = scoredSeparation(runs);
+  const tail =
+    separation.separated.length === 0
+      ? 'No row on this board takes a position: on these runs no interval lies entirely above another, so the shared axis does the comparing.'
+      : 'Rows are never ordered by their point estimate. Where one interval does lie entirely above another, the scored group names that pair.';
+  return `${shape}. Grouped by what stopped each run, in the order the gates run. ${tail}`;
+}
+
+/** The spend sentence under the ledger. One sentence, and it is a disclosure. */
+export function spendLine(stats) {
+  if (!stats || stats.costUsd === null) {
+    return {
+      figure: null,
+      floor: false,
+      tail: 'No tape in this pass carries a priced model turn, so this page publishes no spend figure.'
+    };
+  }
+  const unrecorded = stats.runs - stats.judgeRuns;
+  const unpriced = stats.judgeRuns - stats.judgePricedRuns;
+  const tail = [];
+  if (unrecorded > 0) {
+    tail.push(
+      `Judge spend on ${unrecorded} of ${stats.runs} ${stats.runs === 1 ? 'run is' : 'runs is'} not recorded, so it is outside this figure and is not estimated.`
+    );
+  }
+  if (unpriced > 0) {
+    tail.push(
+      `${unpriced} ${unpriced === 1 ? 'more carries' : 'more carry'} judge counts with no price on file, so no judge dollars are added for ${
+        unpriced === 1 ? 'it' : 'them'
+      }.`
+    );
+  }
+  if (tail.length === 0) tail.push('Judge spend is recorded and priced on every run, so it is inside this figure.');
+  return {
+    figure: `${stats.costIsFloor ? 'at least ' : ''}${fmtUsd(stats.costUsd, 2)}`,
+    floor: stats.costIsFloor,
+    tail: tail.join(' ')
+  };
+}
+
+// ---------------------------------------------------------------------------
 // tiny DOM helpers
 // ---------------------------------------------------------------------------
 
@@ -1966,16 +2296,29 @@ function link(href, text, className) {
   return a;
 }
 
+/** "<server slug>, suite 4f21ac90bb31" and, where given, which finding. */
+function evidenceName(run, context) {
+  const identity = runIdentityOf(run);
+  const where = identity.suitePrefix ? `suite ${identity.suitePrefix}` : 'suite not recorded';
+  return `${context ? `${context}, ` : ''}${identity.slug}, ${where}`;
+}
+
 /**
  * An evidence link for one finding. When no trace was published the caller gets
  * a plain "no recording published" marker instead of a live link, so a finding
  * never stands on this page as a bare count.
+ *
+ * Every one of these carries an accessible name that says which run and which
+ * finding it belongs to, because a link list of forty links all reading
+ * "evidence" is a link list with no evidence in it.
  */
-function evidenceLink(run, label) {
+function evidenceLink(run, label, context) {
   const url = replayUrlOf(run);
   if (!url) return el('span', 'evidence is-missing', 'no recording published');
-  const a = link(url, label || 'evidence', 'evidence');
+  const text = label || 'evidence';
+  const a = link(url, text, 'evidence');
   a.title = 'Open the recorded session behind this finding';
+  a.setAttribute('aria-label', `${text}: ${evidenceName(run, context)}. Opens the recorded session in a new tab.`);
   return a;
 }
 
@@ -1987,129 +2330,31 @@ function definition(parent, term, value) {
   return dd;
 }
 
-// ---------------------------------------------------------------------------
-// cells
-// ---------------------------------------------------------------------------
-
-function serverCell(run, placement, cohort) {
-  const td = el('td', 'cell-server');
-  const chip = el('span', 'rank-chip');
-  if (placement && placement.rank) {
-    chip.classList.add(placement.tied ? 'rank-tied' : 'rank-solo');
-    chip.textContent = placement.tied ? `Tied at ${placement.rank}` : `Rank ${placement.rank}`;
-    if (placement.tied) {
-      chip.title = `${placement.groupSize} servers whose 95% intervals overlap. They share this position.`;
-    }
-  } else {
-    chip.classList.add('rank-none');
-    chip.textContent = 'Not ranked';
-    chip.title = 'This run produced no score, so it takes no position.';
-  }
-  td.appendChild(chip);
-
-  const name = el('div', 'server-name', slugOf(run));
-  td.appendChild(name);
-
-  // The generator badge rides on every row, ranked or refused. Two generator
-  // versions are two different denominators, and a reader scanning the table has
-  // to be able to see which one a row came from without opening it.
-  const generator = generatorBadgeOf(run);
-  const genChip = el('span', `gen-chip${generator.known ? '' : ' gen-chip-unknown'}`, generator.label);
-  genChip.title = generator.note;
-  td.appendChild(genChip);
-
-  const server = run.server && typeof run.server === 'object' ? run.server : {};
-  const url = el('div', 'server-url');
-  url.appendChild(el('code', null, typeof server.url === 'string' ? server.url : 'url not recorded'));
-  td.appendChild(url);
-
-  // Which run this row is. A server can be driven again at any time, so a row
-  // that names only the server names half of what it shows.
-  const identity = el('div', 'run-identity', runIdentityLine(run));
-  identity.title = 'The run behind this row: the task suite it drove, and when that drive started.';
-  td.appendChild(identity);
-
-  const bits = [];
-  if (server.era) bits.push(`${server.era} era`);
-  if (server.transportShape) bits.push(server.transportShape === 'sse' ? 'SSE framed' : 'plain JSON');
-  if (typeof server.sessionful === 'boolean') bits.push(server.sessionful ? 'session-ful' : 'stateless');
-  td.appendChild(el('div', 'server-meta', bits.join(' / ') || 'transport not recorded'));
-
-  // Reruns are separate attempts. They are marked as such on every row they
-  // produced, including the older ones, and each row names the others so a
-  // reader who lands on one can find the rest wherever they sit in the table.
-  if (cohort && cohort.total > 1) {
-    const chip = el(
-      'span',
-      'rerun-chip',
-      cohort.attempt === null
-        ? `${cohort.total} published runs of this server`
-        : `Run ${cohort.attempt} of ${cohort.total} for this server`
-    );
-    chip.title =
-      'Reruns of one server are separate attempts, each with its own task suite and its own outcome. Every one of them stays on this page and none of them is a best of.';
-    td.appendChild(chip);
-    if (cohort.siblings.length > 0) {
-      td.appendChild(
-        el(
-          'div',
-          'rerun-siblings',
-          `Other runs of this server, published in full: ${cohort.siblings
-            .map(
-              (sibling) =>
-                `${sibling.suitePrefix || 'suite not recorded'} (${sibling.outcome}${
-                  sibling.startedAt ? `, ${sibling.startedAt}` : ''
-                })`
-            )
-            .join('; ')}`
-        )
-      );
-    }
-  }
-  return td;
+/**
+ * A field well: a small label above a value, in the same slot in every row.
+ *
+ * The label is in the DOM on every row and in every layout, so assistive tech
+ * always hears which field it is in. On wide screens the column strip carries
+ * the labels visually and these are hidden with a clip, which is a visual
+ * decision only. Below the stacking breakpoint they become visible again.
+ */
+function field(row, key, label) {
+  const cell = el('div', `fld fld-${key}`);
+  cell.appendChild(el('span', 'fld-label', label));
+  const body = el('div', 'fld-body');
+  cell.appendChild(body);
+  row.appendChild(cell);
+  return body;
 }
 
-function outcomeCell(run) {
-  const td = el('td', 'cell-outcome');
-  const refusal = refusalOf(run);
-  if (!refusal) {
-    const pill = el('span', 'pill pill-scored', 'SCORED');
-    td.appendChild(pill);
-    const score = scoreOf(run) || {};
-    const dl = el('dl', 'mini-figures');
-    definition(dl, 'calls per task', fmtNum(score.meanCallsPerCompletedTask, 1));
-    // Both of these are runner figures. They are labelled that way because the
-    // judge model's tokens are not in them and a bare "cost per task" reads as
-    // the cost of the task, which is a different and larger number.
-    definition(dl, 'runner tokens per task', fmtInt(score.meanTokensPerCompletedTask));
-    definition(dl, 'runner cost per task', fmtUsd(score.meanCostPerCompletedTaskUsd));
-    td.appendChild(dl);
-    td.appendChild(el('div', 'runner-note', `runner ${runnerModelOf(run)}`));
-    return td;
-  }
-
-  td.classList.add('is-refused');
-  const pill = el('span', 'pill pill-refused', 'REFUSED');
-  td.appendChild(pill);
-  td.appendChild(el('div', 'refusal-outcome', refusal.outcome));
-  td.appendChild(el('div', 'refusal-gate', `stopped at the ${refusal.gateLabel} gate`));
-  if (refusal.reason) {
-    const reason = el('div', 'refusal-reason');
-    reason.appendChild(el('code', null, refusal.reason));
-    td.appendChild(reason);
-  }
-  // The row carries the counts. The sentence that explains them is one click
-  // away, in the panel, so this cell stays a cell.
-  const vline = verdictLine(refusal.verdict);
-  const teaser = refusalTeaser(run);
-  if (vline) td.appendChild(el('div', 'refusal-counts', vline));
-  if (teaser) td.appendChild(el('div', 'refusal-teaser', teaser));
-  if (!vline && !teaser) td.appendChild(el('div', 'refusal-counts', compactDetailLine(refusal.detail) || refusal.note));
-  return td;
+function chip(text, className, title) {
+  const node = el('span', `chip ${className || ''}`.trim(), text);
+  if (title) node.title = title;
+  return node;
 }
 
 /**
- * detailLine, trimmed for a table cell: prose fields belong in the panel, where
+ * detailLine, trimmed for a row: prose fields belong in the run record, where
  * there is room to read them, not folded into a row as a run on key value list.
  */
 function compactDetailLine(detail) {
@@ -2138,126 +2383,550 @@ function detailLine(detail) {
   return parts.length ? parts.join(', ') : null;
 }
 
-function intervalCell(run, placement) {
-  const td = el('td', 'cell-interval');
+// ---------------------------------------------------------------------------
+// the result well
+//
+// One fixed slot per run, in the same place in every row, on a shared 0 to 100
+// axis. A scored run draws its Wilson interval with the point marked inside it.
+// A refused run draws a hatched span across the whole axis with its outcome code
+// set into it. The refusal occupies the measurement's space at full width, so
+// the eye reads "no number could be put here" rather than "empty cell", and the
+// two states are told apart by pattern and by text, never by colour alone.
+//
+// Markers are positioned with a unitless ratio times (100% - marker width), so
+// a point estimate of 1.0 sits inside the track instead of half outside it.
+// ---------------------------------------------------------------------------
+
+function resultWell(run) {
+  const wrap = el('div', 'well');
   const interval = firstTryInterval(run);
-  if (!interval) {
-    td.classList.add('is-refused');
-    const refusal = refusalOf(run);
-    td.appendChild(el('div', 'no-score', 'No score'));
-    td.appendChild(
-      el(
-        'div',
-        'no-score-why',
-        refusal
-          ? `${refusal.gateLabel} gate refused this run, so no success rate exists to report`
-          : 'this record carries no first try interval'
-      )
-    );
-    return td;
+  const track = el('div', 'well-track');
+  for (const at of [0, 0.25, 0.5, 0.75, 1]) {
+    const grid = el('span', at === 0 || at === 1 ? 'well-grid is-edge' : 'well-grid');
+    grid.style.setProperty('--at', String(at));
+    track.appendChild(grid);
   }
 
-  const figure = el('div', 'interval');
-  figure.setAttribute('role', 'img');
-  figure.setAttribute('aria-label', intervalAriaLabel(interval));
-  const track = el('div', 'interval-track');
-  const band = el('div', 'interval-band');
-  band.style.setProperty('--low', `${(interval.low * 100).toFixed(2)}%`);
-  band.style.setProperty('--high', `${(interval.high * 100).toFixed(2)}%`);
-  const point = el('div', 'interval-point');
-  point.style.setProperty('--rate', `${(interval.rate * 100).toFixed(2)}%`);
-  track.appendChild(band);
-  track.appendChild(point);
-  figure.appendChild(track);
-  td.appendChild(figure);
-
-  const nums = el('div', 'interval-nums');
-  nums.appendChild(el('span', 'interval-rate', fmtPct(interval.rate)));
-  nums.appendChild(el('span', 'interval-ci', `95% CI ${fmtPct(interval.low)} to ${fmtPct(interval.high)}`));
-  td.appendChild(nums);
-  td.appendChild(el('div', 'interval-kn', `${interval.k} of ${interval.n} tasks solved on the first try`));
-  if (placement && placement.overlapsAbove) {
-    td.appendChild(
-      el('div', 'interval-overlap', 'Not separated from the row above. The order between them carries no information.')
-    );
+  if (interval) {
+    wrap.classList.add('is-measured');
+    const band = el('span', 'well-band');
+    band.style.setProperty('--low', String(interval.low));
+    band.style.setProperty('--high', String(interval.high));
+    track.appendChild(band);
+    const point = el('span', 'well-point');
+    point.style.setProperty('--rate', String(interval.rate));
+    track.appendChild(point);
+    track.setAttribute('role', 'img');
+    track.setAttribute('aria-label', intervalAriaLabel(interval));
+    wrap.appendChild(track);
+    wrap.appendChild(axisLabels());
+    const read = el('div', 'well-read');
+    read.appendChild(el('span', 'well-figure', fmtPct(interval.rate)));
+    read.appendChild(el('span', 'well-ci', `95% CI ${fmtPct(interval.low)} to ${fmtPct(interval.high)}`));
+    wrap.appendChild(read);
+    wrap.appendChild(el('div', 'well-kn', `${interval.k} of ${interval.n} tasks on the first try`));
+    return wrap;
   }
-  return td;
+
+  wrap.classList.add('is-hold');
+  const refusal = refusalOf(run);
+  const outcome = refusal ? refusal.outcome : typeof run.outcome === 'string' ? run.outcome : 'NO_RESULT';
+  const hold = el('span', 'well-hold');
+  hold.appendChild(el('span', 'well-code', outcome));
+  track.appendChild(hold);
+  track.setAttribute('role', 'img');
+  track.setAttribute(
+    'aria-label',
+    `no first-try rate: ${outcome}${refusal && refusal.gateLabel ? `, stopped at the ${refusal.gateLabel} gate` : ''}`
+  );
+  wrap.appendChild(track);
+  wrap.appendChild(axisLabels());
+  // The gate that stopped the run is named in the decision field alongside this
+  // one, so this line says what the slot holds and does not repeat it.
+  wrap.appendChild(
+    el(
+      'div',
+      'well-kn',
+      refusal ? 'No first-try rate could be measured.' : 'This record carries no first-try interval.'
+    )
+  );
+  return wrap;
 }
 
-function specCell(run) {
-  const td = el('td', 'cell-spec');
-  const { version, era } = specCurrencyOf(run);
-  if (version) {
-    td.appendChild(el('div', 'spec-version', version));
-  } else {
-    td.appendChild(el('div', 'spec-version is-missing', 'not negotiated'));
-  }
-  td.appendChild(el('div', 'spec-era', era ? `${era} era` : 'era not recorded'));
-  return td;
-}
-
-function hygieneCell(run) {
-  const td = el('td', 'cell-hygiene');
-  const { findings, passed, failed, unknown, checked } = hygieneOf(run);
-  if (findings.length === 0) {
-    td.appendChild(el('div', 'is-missing', 'no probes recorded'));
-    return td;
-  }
-  const head = el('div', 'hygiene-count');
-  head.textContent = `${passed.length} of ${checked} checks passed`;
-  if (failed.length > 0) head.classList.add('has-failures');
-  td.appendChild(head);
-  if (unknown.length > 0) {
-    td.appendChild(el('div', 'hygiene-unknown', `${unknown.length} could not be checked`));
-  }
-  if (failed.length > 0) {
-    const list = el('ul', 'hygiene-list');
-    for (const finding of failed) {
-      const li = el('li');
-      li.appendChild(el('span', 'finding-id', String(finding.id || 'unnamed check')));
-      li.appendChild(evidenceLink(run, 'evidence'));
-      list.appendChild(li);
-    }
-    td.appendChild(list);
-  }
-  return td;
-}
-
-function credentialCell(run) {
-  const td = el('td', 'cell-cred');
-  const server = run.server && typeof run.server === 'object' ? run.server : {};
-  const context = typeof server.credentialContext === 'string' ? server.credentialContext : null;
-  if (!context) {
-    td.appendChild(el('span', 'badge badge-unknown', 'not stamped'));
-    return td;
-  }
-  const badge = el('span', `badge badge-${context.replace(/[^a-z-]/gi, '')}`, context);
-  badge.title = CREDENTIAL_NOTES[context] || 'credential context recorded with this run';
-  td.appendChild(badge);
-  const score = scoreOf(run);
-  const delta = score && Array.isArray(score.toolSurfaceDeltaByCredential) ? score.toolSurfaceDeltaByCredential : null;
-  if (delta && delta.length > 0) {
-    td.appendChild(el('div', 'cred-delta', `${delta.length} tools differ by credential`));
-  }
-  return td;
-}
-
-function replayCell(run) {
-  const td = el('td', 'cell-replay');
-  const url = replayUrlOf(run);
-  if (!url) {
-    td.appendChild(el('span', 'is-missing', 'no tape published'));
-    return td;
-  }
-  const a = link(url, 'Open replay', 'replay-link');
-  a.title = 'Opens the merged MCP and agent tapes in the viewer, in a new tab';
-  td.appendChild(a);
-  td.appendChild(el('div', 'replay-note', 'two planes, opens on click'));
-  return td;
+/** 0 / 50 / 100, printed under each well. Shown only where the strip is not. */
+function axisLabels() {
+  const wrap = el('span', 'well-axis');
+  wrap.setAttribute('aria-hidden', 'true');
+  for (const value of ['0', '50', '100']) wrap.appendChild(el('span', null, value));
+  return wrap;
 }
 
 // ---------------------------------------------------------------------------
-// detail panel
+// board fields
+// ---------------------------------------------------------------------------
+
+function runField(body, run, cohort) {
+  body.appendChild(el('div', 'rec-server', slugOf(run)));
+  const server = asObject(run.server);
+  const url = el('div', 'rec-url');
+  url.appendChild(el('code', null, typeof server.url === 'string' ? server.url : 'url not recorded'));
+  body.appendChild(url);
+
+  const chips = el('div', 'rec-chips');
+  // The generator chip rides on every row, scored or refused. Two generator
+  // versions are two different denominators, and a reader scanning the board has
+  // to see which one a row came from without opening anything.
+  const generator = generatorBadgeOf(run);
+  chips.appendChild(chip(generator.label, generator.known ? 'chip-gen' : 'chip-gen chip-unknown', generator.note));
+  chips.appendChild(chip(runnerModelOf(run), 'chip-runner', 'The runner model this run was driven with. Numbers are only comparable within one runner model.'));
+  body.appendChild(chips);
+
+  body.appendChild(el('div', 'rec-identity', runIdentityLine(run)));
+
+  // Reruns are separate attempts. They are marked on every row they produced,
+  // including the older ones, and each row names the others so a reader who
+  // lands on one can find the rest wherever they sit on the board. The others
+  // are named by suite hash and outcome: their own start times are printed on
+  // their own rows and in this run's record, so nothing is lost by not
+  // reprinting them here.
+  if (cohort && cohort.total > 1) {
+    body.appendChild(
+      el(
+        'div',
+        'rec-attempt',
+        cohort.attempt === null
+          ? `${cohort.total} published runs of this server`
+          : `Run ${cohort.attempt} of ${cohort.total} for this server`
+      )
+    );
+    if (cohort.siblings.length > 0) {
+      const others = el(
+        'div',
+        'rec-siblings',
+        `Other runs of this server, published in full: ${cohort.siblings
+          .map((sibling) => `${sibling.suitePrefix || 'suite not recorded'} (${sibling.outcome})`)
+          .join('; ')}`
+      );
+      others.title = cohort.siblings
+        .map(
+          (sibling) =>
+            `${sibling.suitePrefix || 'suite not recorded'} (${sibling.outcome}${
+              sibling.startedAt ? `, started ${sibling.startedAt}` : ''
+            })`
+        )
+        .join('\n');
+      body.appendChild(others);
+    }
+  }
+}
+
+function decisionField(body, run) {
+  const refusal = refusalOf(run);
+  const outcome = refusal ? refusal.outcome : typeof run.outcome === 'string' ? run.outcome : 'UNKNOWN_OUTCOME';
+  body.appendChild(el('div', refusal ? 'code code-hold' : 'code code-measure', outcome));
+  body.appendChild(
+    el(
+      'div',
+      'rec-gate',
+      refusal ? `stopped at the ${refusal.gateLabel} gate` : 'no gate stopped this run'
+    )
+  );
+  if (refusal && refusal.reason) {
+    const reason = el('div', 'rec-reason');
+    reason.appendChild(el('code', null, refusal.reason));
+    body.appendChild(reason);
+  }
+  const decisive = decisiveLine(run);
+  if (decisive) body.appendChild(el('div', 'rec-decisive', decisive));
+  const vline = verdictLine(refusal ? refusal.verdict : null);
+  if (vline) body.appendChild(el('div', 'rec-counts', vline));
+  if (refusal && !decisive && !vline) {
+    body.appendChild(el('div', 'rec-counts', compactDetailLine(refusal.detail) || refusal.note));
+  }
+  if (!refusal) {
+    const score = scoreOf(run) || {};
+    const tokens = finite(score.meanTokensPerCompletedTask);
+    const cost = finite(score.meanCostPerCompletedTaskUsd);
+    // Both are runner figures. They say so, because the judge model's tokens are
+    // not in them and a bare "cost per task" reads as the cost of the task,
+    // which is a different and larger number.
+    const parts = [];
+    if (tokens !== null) parts.push(`${fmtInt(tokens)} runner tokens per task`);
+    if (cost !== null) parts.push(`${fmtUsd(cost)} runner cost per task`);
+    if (parts.length > 0) body.appendChild(el('div', 'rec-counts', parts.join(' / ')));
+  }
+}
+
+function probeField(body, run) {
+  const { version, era } = specCurrencyOf(run);
+  const spec = el('div', 'probe-spec');
+  spec.appendChild(el('span', 'probe-key', 'spec'));
+  spec.appendChild(el('span', version ? 'probe-value' : 'probe-value is-missing', version || 'not negotiated'));
+  body.appendChild(spec);
+
+  // The connection's own shape sits with the probes, which is what measured it,
+  // rather than under the server name where it repeated the era twice.
+  const server = asObject(run.server);
+  const bits = [];
+  if (era) bits.push(`${era} era`);
+  if (server.transportShape) bits.push(server.transportShape === 'sse' ? 'SSE framed' : 'plain JSON');
+  if (typeof server.sessionful === 'boolean') bits.push(server.sessionful ? 'session-ful' : 'stateless');
+  body.appendChild(el('div', 'probe-era', bits.join(' / ') || 'era and transport not recorded'));
+
+  const { findings, passed, failed, unknown, checked } = hygieneOf(run);
+  if (findings.length === 0) {
+    body.appendChild(el('div', 'is-missing', 'no probes recorded'));
+    return;
+  }
+  const count = el('div', failed.length > 0 ? 'probe-count has-fault' : 'probe-count');
+  count.textContent = `${passed.length} of ${checked} checks passed`;
+  body.appendChild(count);
+  if (unknown.length > 0) {
+    const note = el('div', 'probe-unknown', `${unknown.length} could not be checked`);
+    note.title = 'A probe that did not apply to this connection is reported as unknown, never folded into the pass count.';
+    body.appendChild(note);
+  }
+  if (failed.length > 0) {
+    const list = el('div', 'probe-faults');
+    for (const finding of failed) list.appendChild(chip(String(finding.id || 'unnamed check'), 'chip-fault', String(finding.detail || 'no detail recorded')));
+    body.appendChild(list);
+  }
+}
+
+function credentialField(body, run) {
+  const server = asObject(run.server);
+  const context = typeof server.credentialContext === 'string' ? server.credentialContext : null;
+  if (!context) {
+    body.appendChild(chip('not stamped', 'chip-cred chip-unknown', 'This record does not stamp the credentials the run was collected under.'));
+    return;
+  }
+  body.appendChild(chip(context, `chip-cred chip-cred-${context.replace(/[^a-z-]/gi, '')}`, CREDENTIAL_NOTES[context] || 'credential context recorded with this run'));
+  const score = scoreOf(run);
+  const delta = score && Array.isArray(score.toolSurfaceDeltaByCredential) ? score.toolSurfaceDeltaByCredential : null;
+  if (delta && delta.length > 0) body.appendChild(el('div', 'rec-note', `${delta.length} tools differ by credential`));
+}
+
+function evidenceField(body, run, key) {
+  const url = replayUrlOf(run);
+  if (url) {
+    const a = link(url, 'Replay', 'act act-replay');
+    a.title = 'Opens the merged MCP and agent tapes in the viewer, in a new tab';
+    a.setAttribute('aria-label', `Replay the recorded session for ${evidenceName(run, null)}. Opens in a new tab.`);
+    body.appendChild(a);
+  } else {
+    body.appendChild(el('div', 'is-missing', 'no tape published'));
+  }
+  const record = el('a', 'act act-record', 'Open the record');
+  record.href = `#run/${encodeURIComponent(key)}`;
+  record.setAttribute('data-record', key);
+  record.setAttribute('aria-label', `Open the run record for ${evidenceName(run, null)}`);
+  body.appendChild(record);
+}
+
+// ---------------------------------------------------------------------------
+// board
+// ---------------------------------------------------------------------------
+
+function boardRow(run, key, cohort) {
+  const refused = run.outcome !== 'SCORED';
+  const li = el('li', refused ? 'rec run-row is-refused-row' : 'rec run-row is-scored-row');
+  const family = outcomeFamilyOf(run);
+  li.id = `row-${key}`;
+  li.dataset.record = String(key || '');
+  li.dataset.family = family.key;
+  // Rows of one server carry the same key wherever they sit on the board, so a
+  // rerun is findable across groups rather than reading as an unrelated row.
+  li.dataset.server = slugOf(run);
+  if (cohort && cohort.total > 1) li.classList.add('is-rerun');
+
+  runField(field(li, 'run', 'Run'), run, cohort);
+  field(li, 'result', 'Result').appendChild(resultWell(run));
+  decisionField(field(li, 'decision', 'Decision'), run);
+  probeField(field(li, 'probes', 'Probes'), run);
+  credentialField(field(li, 'cred', 'Credential'), run);
+  evidenceField(field(li, 'evidence', 'Evidence'), run, key);
+  return li;
+}
+
+/**
+ * The whole board. Pure in, DOM out.
+ *
+ * Grouped by outcome family: the runs that produced a number first, then the
+ * cost ladder. There are no positions anywhere, because on the published
+ * intervals nothing separates anything, and a printed position would be this
+ * page claiming an order the evidence does not carry.
+ */
+export function renderBoard(node, runs) {
+  node.textContent = '';
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  if (usable.length === 0) {
+    node.appendChild(el('p', 'state', 'No runs in data/runs.json yet.'));
+    return;
+  }
+  const index = indexRuns(usable);
+  const cohorts = serverCohorts(usable);
+  const separation = scoredSeparation(usable);
+
+  for (const bucket of familyBuckets(usable, BOARD_ORDER)) {
+    const section = el('section', 'group');
+    section.dataset.family = bucket.key;
+    const head = el('h3', 'group-head');
+    head.appendChild(el('span', 'group-title', bucket.label));
+    head.appendChild(el('span', 'group-count', `${bucket.count} ${bucket.count === 1 ? 'run' : 'runs'}`));
+    section.appendChild(head);
+
+    const notes = [];
+    if (bucket.key === 'scored') {
+      notes.push(separation.line);
+      for (const band of scoredBands(usable)) {
+        notes.push(
+          `Measured under runner model ${band.runnerModel}, task suite from ${band.generatorVersion}. Both are pinned into every run record, and rows from a different runner model or a different generator are never read against these.`
+        );
+      }
+    } else {
+      if (bucket.note) notes.push(bucket.note);
+      if (bucket.gates.length > 0) {
+        notes.push(
+          `Stopped at the ${bucket.gates.join(bucket.gates.length === 2 ? ' or ' : ', ')} ${
+            bucket.gates.length === 1 ? 'gate' : 'gates'
+          }. The gate, its counts and its reason stand in place of the number.`
+        );
+      }
+      if (bucket.generators.length > 1) {
+        notes.push(
+          `These runs come from ${bucket.generators.length} task generators, so their admission, drop and screen counts are not comparable with each other. Every row carries the generator it came from.`
+        );
+      }
+    }
+    for (const note of notes) section.appendChild(el('p', 'group-note', note));
+
+    // Within a group: recorded generators first, then by server, then oldest run
+    // first, so two runs of one server are read next to each other.
+    const rows = [...bucket.runs].sort((a, b) => {
+      const aKnown = hasRecordedGenerator(a);
+      const bKnown = hasRecordedGenerator(b);
+      if (aKnown !== bKnown) return aKnown ? -1 : 1;
+      const byGenerator = generatorVersionOf(a).localeCompare(generatorVersionOf(b));
+      if (byGenerator !== 0) return byGenerator;
+      const byServer = slugOf(a).localeCompare(slugOf(b));
+      if (byServer !== 0) return byServer;
+      const at = runIdentityOf(a).startedAt;
+      const bt = runIdentityOf(b).startedAt;
+      if (at !== null && bt !== null && at !== bt) return at < bt ? -1 : 1;
+      return 0;
+    });
+
+    const list = el('ol', 'recs');
+    for (const run of rows) list.appendChild(boardRow(run, index.keyFor(run), cohortPlaceOf(cohorts, run)));
+    section.appendChild(list);
+    node.appendChild(section);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// the outcome ledger
+// ---------------------------------------------------------------------------
+
+/**
+ * Zone B: four counts in the order the gates run, one line of plain language
+ * each, and a tick per published run underneath. This replaces the four stat
+ * cells: servers tested, scored and refused are all readable from the ledger,
+ * and the fourth cell was never a statistic at all. It was a disclosure, so it
+ * stops pretending and becomes one sentence.
+ */
+export function renderLedger(node, runs) {
+  if (!node) return;
+  node.textContent = '';
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  if (usable.length === 0) {
+    node.appendChild(el('p', 'state', 'No runs in data/runs.json yet.'));
+    return;
+  }
+  const stats = boardStats(usable);
+  const index = indexRuns(usable);
+  const buckets = familyBuckets(usable, LEDGER_ORDER);
+  const separation = scoredSeparation(usable);
+
+  const ledger = el('ol', 'ledger');
+  for (const bucket of buckets) {
+    const cell = el('li', 'ledger-cell');
+    cell.dataset.family = bucket.key;
+    cell.appendChild(el('p', 'cell-label', bucket.label));
+    cell.appendChild(el('p', 'cell-count', String(bucket.count)));
+    const codes = el('p', 'cell-codes');
+    for (const code of bucket.codes) {
+      codes.appendChild(el('span', 'cell-code', `${code.code} ${code.count}`));
+    }
+    cell.appendChild(codes);
+    cell.appendChild(el('p', 'cell-line', bucket.key === 'scored' ? separation.line : bucket.note || ''));
+    ledger.appendChild(cell);
+  }
+  node.appendChild(ledger);
+
+  // One tick per run, grouped the same way, each a link to that run's record.
+  // This is the ten second answer to "what happened here".
+  const strip = el('nav', 'ticks');
+  strip.setAttribute('aria-label', 'Every published run, grouped by what stopped it');
+  for (const bucket of buckets) {
+    const group = el('ol', 'tick-group');
+    group.dataset.family = bucket.key;
+    for (const run of bucket.runs) {
+      const key = index.keyFor(run);
+      const li = el('li');
+      const a = el('a', 'tick');
+      a.href = `#run/${encodeURIComponent(key)}`;
+      a.dataset.family = bucket.key;
+      a.setAttribute('data-record', key);
+      const outcome = typeof run.outcome === 'string' ? run.outcome : 'UNKNOWN_OUTCOME';
+      a.setAttribute('aria-label', `${slugOf(run)}: ${outcome}. Open the run record.`);
+      a.title = `${slugOf(run)} / ${outcome}`;
+      li.appendChild(a);
+      group.appendChild(li);
+    }
+    strip.appendChild(group);
+  }
+  node.appendChild(strip);
+  node.appendChild(
+    el(
+      'p',
+      'ticks-note',
+      'One tick per published run, grouped the same way. Every tick opens that run’s record.'
+    )
+  );
+
+  const spend = spendLine(stats);
+  const line = el('p', 'spend-line');
+  if (spend.figure === null) {
+    line.appendChild(el('span', null, spend.tail));
+  } else {
+    line.appendChild(el('span', 'spend-label', 'Measured model spend'));
+    line.appendChild(el('span', 'spend-figure', spend.figure));
+    if (spend.floor) {
+      const anchor = el('a', 'spend-floor', 'a floor');
+      anchor.href = '#methods-not-in-numbers';
+      anchor.title = 'What is known to sit outside this figure, named rather than estimated';
+      line.appendChild(anchor);
+    }
+    line.appendChild(el('span', 'spend-tail', spend.tail));
+  }
+  node.appendChild(line);
+}
+
+/**
+ * The disclosure paragraphs, rendered into Methods under "What is not in these
+ * numbers" instead of stacked under the masthead figure. The text is unchanged:
+ * the floor versus total distinction is the point, so nothing here is shortened.
+ * Each is an addressable claim that the figures elsewhere link back to.
+ */
+export function renderDisclosures(node, runs) {
+  if (!node) return;
+  node.textContent = '';
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  const stats = boardStats(usable);
+  const notes = [];
+
+  if (stats.costUsd !== null) {
+    notes.push({
+      id: 'not-in-numbers-basis',
+      title: 'What the spend figure is made of',
+      text: `${spendNote(stats)}.`
+    });
+  }
+  if (stats.scored === 0 && stats.runs > 0) {
+    notes.push({
+      id: 'not-in-numbers-all-refused',
+      title: 'Every run in this pass was refused',
+      text:
+        'That is the published result, not a gap on the board: each row carries the gate, the counts it measured and the recording behind them.'
+    });
+  }
+  if (stats.judgeRuns < stats.runs && stats.runs > 0) {
+    const missing = stats.runs - stats.judgeRuns;
+    notes.push({
+      id: 'not-in-numbers-judge',
+      title: 'Judge spend',
+      text:
+        `${missing} of ${stats.runs} ${stats.runs === 1 ? 'run carries' : 'runs carry'} no record of what the judge model spent. ` +
+        'The judge generates the task suite and runs the destructiveness signal, and it writes to neither tape, so the figure above covers the runner model where a tape priced it, plus judge usage on the runs that record it. ' +
+        'The rest is not estimated here. A per run number on this page is either read from that run or absent, and a flat per run assumption is not a measurement.'
+    });
+  }
+  const reruns = rerunSummary(usable);
+  if (reruns.servers > 0) {
+    notes.push({
+      id: 'not-in-numbers-reruns',
+      title: 'Reruns',
+      text:
+        `${reruns.servers} of ${reruns.totalServers} ${reruns.servers === 1 ? 'server has' : 'servers have'} more than one published run here, ${reruns.rows} rows in total. ` +
+        'A rerun is a separate attempt against a newly generated task suite, under its own suite hash, and it is published beside the earlier run rather than replacing it. ' +
+        'Every row carries its suite hash and start time so two attempts can be told apart. Nothing on this page keeps the better of two runs: the registered size and the extension budget are fixed inside a run, and across runs the defence is that no attempt is hidden.'
+    });
+  }
+  if (stats.screenRuns > 0) {
+    notes.push({
+      id: 'not-in-numbers-screen',
+      title: 'Generation time null screen calls',
+      text:
+        `${stats.screenRuns} of ${stats.runs} ${stats.runs === 1 ? 'run' : 'runs'} used a generation time null screen: candidates a model answered correctly with no server at all were deleted before the suite was hashed and before any gate ran. ` +
+        `The run time null baseline on those rows therefore measures the noise floor of an already screened suite and is biased downward by construction. The screen made ${stats.screenCalls} runner model ${stats.screenCalls === 1 ? 'call' : 'calls'} (${stats.screenInputTokens} input and ${stats.screenOutputTokens} output tokens) that are written to neither tape, so they are not in the spend above. Each run record carries its own counts.`
+    });
+  }
+
+  if (notes.length === 0) {
+    node.appendChild(el('p', 'is-missing', 'Nothing known sits outside the figures on this page for this pass.'));
+    return;
+  }
+  const list = el('div', 'disclosure-list');
+  for (const note of notes) {
+    const block = el('section', 'disclosure');
+    block.id = note.id;
+    block.appendChild(el('h4', null, note.title));
+    block.appendChild(el('p', null, note.text));
+    list.appendChild(block);
+  }
+  node.appendChild(list);
+}
+
+/**
+ * "Recorded on every run": the method notes a generator writes onto every one of
+ * its runs, published once, verbatim. Each run record shows only its own notes
+ * and says how many standing ones it also carries, so nothing is hidden and the
+ * same paragraph stops being printed twenty-two times.
+ */
+export function renderStandingNotes(node, runs) {
+  if (!node) return;
+  node.textContent = '';
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  const standing = standingNotes(usable);
+  const entries = [...standing.values()].filter((entry) => entry.notes.length > 0);
+  if (entries.length === 0) {
+    node.appendChild(
+      el('p', 'is-missing', 'No note in this pass is recorded on every run of a generator, so every note is published on its own run record.')
+    );
+    return;
+  }
+  for (const entry of entries) {
+    const block = el('section', 'standing-block');
+    block.id = `standing-${entry.generator.replace(/[^A-Za-z0-9]+/g, '-')}`;
+    const head = el('h4', 'standing-head');
+    head.appendChild(el('span', 'standing-gen', entry.generator));
+    head.appendChild(
+      el(
+        'span',
+        'standing-count',
+        `${entry.notes.length} ${entry.notes.length === 1 ? 'note' : 'notes'} on all ${entry.runs} of its runs`
+      )
+    );
+    block.appendChild(head);
+    const list = el('ul', 'methods-list');
+    for (const note of entry.notes) list.appendChild(el('li', null, note));
+    block.appendChild(list);
+    node.appendChild(block);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// the run record (Zone D)
 // ---------------------------------------------------------------------------
 
 /**
@@ -2275,11 +2944,11 @@ function meterBlock(meter) {
     const track = el('div', 'meter-track');
     track.setAttribute('aria-hidden', 'true');
     const fill = el('div', 'meter-fill');
-    fill.style.setProperty('--value', `${((rate === null ? 0 : rate) * 100).toFixed(2)}%`);
+    fill.style.setProperty('--value', String(rate === null ? 0 : rate));
     track.appendChild(fill);
     if (threshold) {
       const mark = el('div', 'meter-threshold');
-      mark.style.setProperty('--at', `${(threshold.value * 100).toFixed(2)}%`);
+      mark.style.setProperty('--at', String(threshold.value));
       track.appendChild(mark);
     }
     line.appendChild(track);
@@ -2291,116 +2960,186 @@ function meterBlock(meter) {
   return wrap;
 }
 
+function figureGrid(figures) {
+  const dl = el('dl', 'figures');
+  for (const figure of figures) {
+    const cell = el('div', 'figure');
+    cell.appendChild(el('dt', null, figure.label));
+    cell.appendChild(el('dd', null, figure.value));
+    dl.appendChild(cell);
+  }
+  return dl;
+}
+
+function tier(className, label, title) {
+  const section = el('section', `tier ${className}`.trim());
+  if (label) section.appendChild(el('p', 'tier-label', label));
+  if (title) section.appendChild(el('h3', 'tier-title', title));
+  return section;
+}
+
 /**
- * The refusal, told rather than named. This block is the reason the row is
- * expandable at all: the table can name the gate, but only the record's own
- * numbers can say what the gate saw.
+ * TIER 1: the single comparison that decided this run, drawn.
+ *
+ * A reader who opened this record should understand the decision before
+ * scrolling. The gate ledger below is the audit trail, not the explanation.
  */
-function refusalBlock(run) {
-  const wrap = el('div', 'panel-block panel-refusal');
-  const stories = refusalStories(run);
-  wrap.appendChild(el('h4', null, 'Why there is no score'));
+function decidingTier(run) {
+  const section = tier('tier-1', 'The comparison that decided this run');
   const refusal = refusalOf(run);
-  if (refusal) {
-    const head = el('p', 'refusal-lede');
-    head.appendChild(el('span', 'pill pill-refused', 'REFUSED'));
-    head.appendChild(el('span', 'refusal-lede-text', `${refusal.outcome}: ${refusal.note}.`));
-    wrap.appendChild(head);
-  }
-  // An outcome whose meaning changed between harness versions is read against
-  // the record that carries it, so an older row is explained rather than
-  // described in terms that were never true of it.
-  const exhausted = exhaustedReading(run);
-  if (exhausted.length > 0) {
-    const section = el('div', 'story is-secondary outcome-reading');
-    const head = el('div', 'story-head');
-    head.appendChild(el('span', 'story-gate', 'reading this outcome'));
-    head.appendChild(el('span', 'story-role', 'from this record, not from the row it sits on'));
+  const head = el('div', 'verdict');
+  if (!refusal) {
+    head.appendChild(el('span', 'code code-measure', 'SCORED'));
+    head.appendChild(el('span', 'verdict-note', 'every gate passed, so a first-try rate exists'));
     section.appendChild(head);
-    for (const line of exhausted) section.appendChild(el('p', 'story-line', line));
-    const evidence = el('p', 'story-evidence');
-    evidence.appendChild(el('span', null, 'The counts this outcome was reached on are on the recording: '));
-    evidence.appendChild(evidenceLink(run, 'open the recorded session'));
+    section.appendChild(resultWell(run));
+    const score = scoreOf(run) || {};
+    const figures = [];
+    const eventual = asObject(score.eventualSuccess);
+    if (finite(eventual.rate) !== null) {
+      figures.push({
+        label: 'eventual success',
+        value: `${fmtPct(eventual.rate)} (95% CI ${fmtPct(eventual.low)} to ${fmtPct(eventual.high)}), ${fmtInt(eventual.k)} of ${fmtInt(eventual.n)}`
+      });
+    }
+    if (finite(score.meanCallsPerCompletedTask) !== null) {
+      figures.push({ label: 'calls per completed task', value: fmtNum(score.meanCallsPerCompletedTask, 1) });
+    }
+    if (finite(score.meanTokensPerCompletedTask) !== null) {
+      figures.push({ label: 'runner tokens per completed task', value: fmtInt(score.meanTokensPerCompletedTask) });
+    }
+    if (finite(score.meanCostPerCompletedTaskUsd) !== null) {
+      figures.push({ label: 'runner cost per completed task', value: fmtUsd(score.meanCostPerCompletedTaskUsd) });
+    }
+    if (finite(score.destructiveWithoutConfirmation) !== null) {
+      figures.push({ label: 'destructive calls without confirmation', value: fmtInt(score.destructiveWithoutConfirmation) });
+    }
+    if (figures.length > 0) section.appendChild(figureGrid(figures));
+    const evidence = el('p', 'evidence-line');
+    evidence.appendChild(el('span', null, 'Every figure above is read from this run: '));
+    evidence.appendChild(evidenceLink(run, 'open the recorded session', 'the scored drive'));
     section.appendChild(evidence);
-    wrap.appendChild(section);
+    return { section, stories: [] };
   }
-  if (stories.length === 0) {
-    wrap.appendChild(
+
+  head.appendChild(el('span', 'code code-hold', refusal.outcome));
+  head.appendChild(el('span', 'verdict-note', `${refusal.note}.`));
+  section.appendChild(head);
+  section.appendChild(el('p', 'verdict-gate', `Stopped at the ${refusal.gateLabel} gate${refusal.costTier ? `, the ${refusal.costTier} tier` : ''}.`));
+  if (refusal.reason) {
+    const reason = el('p', 'verdict-reason');
+    reason.appendChild(el('code', null, refusal.reason));
+    section.appendChild(reason);
+  }
+
+  const stories = refusalStories(run);
+  const primary = stories.find((story) => story.isPrimary) || stories[0] || null;
+  if (!primary) {
+    section.appendChild(
       el(
         'p',
         'is-missing',
         'This run carries no failed gate record, so the outcome above is all the record says. A refusal with no gate behind it is a defect in the run, not a finding about the server.'
       )
     );
-    return wrap;
+    return { section, stories };
   }
+  if (primary.headline) section.appendChild(el('p', 'headline', primary.headline));
+  if (primary.meter) section.appendChild(meterBlock(primary.meter));
+  if (primary.figures.length > 0) section.appendChild(figureGrid(primary.figures));
+  for (const sentence of primary.sentences) section.appendChild(el('p', 'story-line', sentence));
+  if (primary.limitation) {
+    const note = el('p', 'story-limitation');
+    note.appendChild(el('span', 'tag tag-gap', 'Known gap in the harness'));
+    note.appendChild(el('span', null, primary.limitation));
+    section.appendChild(note);
+  }
+  const vline = verdictLine(primary.verdict);
+  if (vline) section.appendChild(el('p', 'story-counts', `Gate counts as recorded: ${vline}.`));
+  if (primary.explain) {
+    const quote = el('p', 'story-explain');
+    quote.appendChild(el('span', 'tag tag-verbatim', 'Recorded verbatim'));
+    quote.appendChild(el('span', null, primary.explain));
+    section.appendChild(quote);
+  }
+  const evidence = el('p', 'evidence-line');
+  evidence.appendChild(el('span', null, 'Everything above is read from this run: '));
+  evidence.appendChild(evidenceLink(run, 'open the recorded session', `the ${primary.gateLabel} gate`));
+  section.appendChild(evidence);
+  return { section, stories };
+}
 
-  for (const story of stories) {
-    const section = el('div', story.isPrimary ? 'story is-primary' : 'story is-secondary');
+/** The other gates that also failed on the same run, recorded but not decisive. */
+function secondaryTier(run, stories) {
+  const others = stories.filter((story) => !story.isPrimary);
+  if (others.length === 0) return null;
+  const section = tier('tier-2', null, 'Other gates that also failed');
+  for (const story of others) {
+    const block = el('div', 'story');
     const head = el('div', 'story-head');
     head.appendChild(el('span', 'story-gate', `${story.gateLabel} gate`));
     if (story.costTier) head.appendChild(el('span', 'story-tier', `${story.costTier} tier`));
     if (story.reason) head.appendChild(el('code', 'story-reason', story.reason));
-    head.appendChild(
-      el('span', 'story-role', story.isPrimary ? 'stopped the run' : 'also failed, recorded for the same run')
-    );
-    section.appendChild(head);
-
-    if (story.headline) section.appendChild(el('p', 'story-headline', story.headline));
-    if (story.meter) section.appendChild(meterBlock(story.meter));
-
-    if (story.figures.length > 0) {
-      // Each pair is wrapped so a label can never wrap onto one grid row while
-      // its number sits on the next.
-      const dl = el('dl', 'story-figures');
-      for (const figure of story.figures) {
-        const cell = el('div', 'story-figure');
-        cell.appendChild(el('dt', null, figure.label));
-        cell.appendChild(el('dd', null, figure.value));
-        dl.appendChild(cell);
-      }
-      section.appendChild(dl);
-    }
-    for (const sentence of story.sentences) section.appendChild(el('p', 'story-line', sentence));
+    head.appendChild(el('span', 'story-role', 'also failed, recorded for the same run'));
+    block.appendChild(head);
+    if (story.headline) block.appendChild(el('p', 'headline', story.headline));
+    if (story.meter) block.appendChild(meterBlock(story.meter));
+    if (story.figures.length > 0) block.appendChild(figureGrid(story.figures));
+    for (const sentence of story.sentences) block.appendChild(el('p', 'story-line', sentence));
     if (story.limitation) {
       const note = el('p', 'story-limitation');
-      note.appendChild(el('span', 'story-limitation-tag', 'Known gap in the harness'));
+      note.appendChild(el('span', 'tag tag-gap', 'Known gap in the harness'));
       note.appendChild(el('span', null, story.limitation));
-      section.appendChild(note);
+      block.appendChild(note);
     }
-    const vline = verdictLine(story.verdict);
-    if (vline) section.appendChild(el('p', 'story-counts', `Gate counts as recorded: ${vline}.`));
-    if (story.explain) {
-      const quote = el('p', 'story-explain');
-      quote.appendChild(el('span', 'story-explain-tag', 'Recorded verbatim'));
-      quote.appendChild(el('span', null, story.explain));
-      section.appendChild(quote);
-    }
-    const evidence = el('p', 'story-evidence');
-    evidence.appendChild(el('span', null, 'Everything above is read from this run: '));
-    evidence.appendChild(evidenceLink(run, 'open the recorded session'));
-    section.appendChild(evidence);
-    wrap.appendChild(section);
+    const evidence = el('p', 'evidence-line');
+    evidence.appendChild(el('span', null, 'Read from this run: '));
+    evidence.appendChild(evidenceLink(run, 'open the recorded session', `the ${story.gateLabel} gate`));
+    block.appendChild(evidence);
+    section.appendChild(block);
   }
+  return section;
+}
 
-  const notes = Array.isArray(run.scoreNotes) ? run.scoreNotes.filter((n) => typeof n === 'string' && n) : [];
-  if (notes.length > 0) {
-    const list = el('ul', 'story-notes');
-    for (const note of notes) list.appendChild(el('li', null, note));
-    wrap.appendChild(el('p', 'panel-note', 'Honesty notes the harness attached to this run:'));
-    wrap.appendChild(list);
+/** EXTEND_EXHAUSTED, read against the record that carries it. */
+function outcomeReadingTier(run) {
+  const lines = exhaustedReading(run);
+  if (lines.length === 0) return null;
+  const section = tier('tier-2', null, 'Reading this outcome');
+  section.appendChild(el('p', 'tier-note', 'From this record, not from the row it sits on.'));
+  for (const line of lines) section.appendChild(el('p', 'story-line', line));
+  const evidence = el('p', 'evidence-line');
+  evidence.appendChild(el('span', null, 'The counts this outcome was reached on are on the recording: '));
+  evidence.appendChild(evidenceLink(run, 'open the recorded session', 'the outcome reading'));
+  section.appendChild(evidence);
+  return section;
+}
+
+/**
+ * A wide table that scrolls itself rather than escaping the record.
+ *
+ * A focusable role="region" needs an accessible name or a screen reader
+ * announces it as an unlabelled region, so the caller passes the name the
+ * sighted reader already sees above the table.
+ */
+function scrollTable(table, label) {
+  const wrap = el('div', 'table-wrap');
+  wrap.setAttribute('tabindex', '0');
+  wrap.setAttribute('role', 'region');
+  if (typeof label === 'string' && label.length > 0) {
+    wrap.setAttribute('aria-label', `${label}, scrollable`);
   }
+  wrap.appendChild(table);
   return wrap;
 }
 
-function gateTable(run) {
-  const gates = run.gates && typeof run.gates === 'object' ? run.gates : {};
+function gateTier(run) {
+  const gates = asObject(run.gates);
   const records = Array.isArray(gates.records) ? gates.records : [];
-  const wrap = el('div', 'panel-block');
-  wrap.appendChild(el('h4', null, 'Gate ledger'));
+  const section = tier('tier-2', null, 'Gate ledger');
   if (records.length === 0) {
-    wrap.appendChild(el('p', 'is-missing', 'no gate records in this run'));
-    return wrap;
+    section.appendChild(el('p', 'is-missing', 'no gate records in this run'));
+    return section;
   }
   const table = el('table', 'panel-table');
   const thead = el('thead');
@@ -2419,7 +3158,9 @@ function gateTable(run) {
     tr.appendChild(el('td', null, gateLabel(record.gate)));
     tr.appendChild(el('td', null, record.costTier || 'not recorded'));
     const result = el('td');
-    result.appendChild(el('span', record.ok === false ? 'tag tag-fail' : 'tag tag-ok', record.ok === false ? 'refused' : 'passed'));
+    result.appendChild(
+      el('span', record.ok === false ? 'tag tag-hold' : 'tag tag-ok', record.ok === false ? 'refused' : 'passed')
+    );
     tr.appendChild(result);
     const reason = el('td');
     reason.appendChild(el('code', null, record.reason || 'no reason string'));
@@ -2428,55 +3169,67 @@ function gateTable(run) {
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  wrap.appendChild(table);
+  section.appendChild(scrollTable(table, 'Gate ledger'));
   const protocol = extensionProtocolOf(run);
   if (protocol.policy.recorded) {
-    wrap.appendChild(
+    section.appendChild(
       el(
         'p',
-        'panel-note',
+        'tier-note',
         `Extension protocol: ${extensionProtocolSentence(protocol)}${
-          protocol.consumed > 0 ? ' The consumed batches are printed as a sequence above.' : ''
+          protocol.consumed > 0 ? ' The consumed batches are printed as a sequence below.' : ''
         }`
       )
     );
   }
-  return wrap;
+  return section;
 }
 
-function findingsBlock(run) {
-  const wrap = el('div', 'panel-block');
-  wrap.appendChild(el('h4', null, 'Probe findings'));
+function probeTier(run) {
+  const section = tier('tier-2', null, 'Probe findings');
   const findings = probeFindings(run);
   if (findings.length === 0) {
-    wrap.appendChild(el('p', 'is-missing', 'no probes recorded for this run'));
-    return wrap;
+    section.appendChild(el('p', 'is-missing', 'no probes recorded for this run'));
+    return section;
   }
   const list = el('ul', 'finding-list');
   for (const finding of findings) {
-    const li = el('li', finding.pass === false ? 'finding is-fail' : finding.pass === true ? 'finding is-pass' : 'finding is-unknown');
+    const state = finding.pass === true ? 'is-pass' : finding.pass === false ? 'is-fault' : 'is-unknown';
+    const li = el('li', `finding ${state}`);
     const head = el('div', 'finding-head');
     head.appendChild(
-      el('span', 'tag', finding.pass === true ? 'pass' : finding.pass === false ? 'fail' : 'could not check')
+      el(
+        'span',
+        finding.pass === false ? 'tag tag-fault' : finding.pass === true ? 'tag tag-ok' : 'tag tag-unknown',
+        finding.pass === true ? 'pass' : finding.pass === false ? 'fail' : 'could not check'
+      )
     );
     head.appendChild(el('span', 'finding-id', String(finding.id || 'unnamed check')));
-    head.appendChild(evidenceLink(run, 'evidence'));
     li.appendChild(head);
     li.appendChild(el('p', 'finding-detail', String(finding.detail || 'no detail recorded')));
+    const evidence = el('p', 'evidence-line');
+    evidence.appendChild(evidenceLink(run, 'evidence', `probe ${String(finding.id || 'unnamed check')}`));
+    li.appendChild(evidence);
     list.appendChild(li);
   }
-  wrap.appendChild(list);
-  return wrap;
+  section.appendChild(list);
+  section.appendChild(
+    el(
+      'p',
+      'tier-note',
+      'A failed probe is a fact about the server, so it is coloured as a server fault. A refusal is a decision about our own measurement, and the two never wear the same colour. A probe that did not apply to this connection is reported as unknown and never counted as a pass.'
+    )
+  );
+  return section;
 }
 
-function toolsBlock(run) {
+function toolTier(run) {
   const score = scoreOf(run);
   const tools = score && Array.isArray(score.tools) ? score.tools : [];
-  const wrap = el('div', 'panel-block');
-  wrap.appendChild(el('h4', null, 'Per tool attribution'));
+  const section = tier('tier-2', null, 'Per tool attribution');
   if (tools.length === 0) {
-    wrap.appendChild(el('p', 'is-missing', 'no tool level numbers exist for a run that was refused before the drive'));
-    return wrap;
+    section.appendChild(el('p', 'is-missing', 'no tool level numbers exist for a run that was refused before the drive'));
+    return section;
   }
   const table = el('table', 'panel-table');
   const thead = el('thead');
@@ -2505,122 +3258,28 @@ function toolsBlock(run) {
     tr.appendChild(el('td', null, tool.p95Ms === null ? 'not timed' : `${fmtInt(tool.p95Ms)} ms`));
     tr.appendChild(el('td', null, tool.declaredDestructive ? 'yes' : 'no'));
     tr.appendChild(
-      el('td', null, tool.inferredDestructive === null || tool.inferredDestructive === undefined ? 'not judged' : tool.inferredDestructive ? 'yes' : 'no')
+      el(
+        'td',
+        null,
+        tool.inferredDestructive === null || tool.inferredDestructive === undefined
+          ? 'not judged'
+          : tool.inferredDestructive
+            ? 'yes'
+            : 'no'
+      )
     );
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  wrap.appendChild(table);
-  wrap.appendChild(
+  section.appendChild(scrollTable(table, 'Per tool attribution'));
+  section.appendChild(
     el(
       'p',
-      'panel-note',
+      'tier-note',
       'A tool counts as destructive unless it declares readOnlyHint true or destructiveHint false, because those are the spec defaults. Declared and inferred disagreement is itself a finding.'
     )
   );
-  return wrap;
-}
-
-function scoreBlock(run) {
-  const score = scoreOf(run);
-  const wrap = el('div', 'panel-block');
-  wrap.appendChild(el('h4', null, 'Run record'));
-  const dl = el('dl', 'panel-dl');
-  const meta = run.run && typeof run.run === 'object' ? run.run : {};
-  definition(dl, 'run id', String(meta.id || 'not recorded'));
-  definition(dl, 'started', String(meta.startedAt || 'not recorded'));
-  definition(dl, 'harness', String(meta.harnessVersion || 'not recorded'));
-  definition(dl, 'runner model', runnerModelOf(run));
-  definition(dl, 'judge model', String(meta.judgeModel || 'not recorded'));
-  definition(dl, 'suite hash', String(meta.suiteHash || 'not recorded'));
-  definition(dl, 'task budget', fmtInt(meta.taskBudget));
-  const screen = nullScreenOf(run);
-  const generator = generatorBadgeOf(run);
-  definition(
-    dl,
-    'task generator',
-    `${generator.label}${
-      screen.enabled
-        ? `, null screen on: ${fmtInt(screen.dropped)} of ${fmtInt(screen.screened)} screened candidates deleted before the suite hash`
-        : ', no generation time null screen'
-    }`
-  ).title = generator.note;
-  // Suite lineage, only where the record carries it. A row that reads
-  // "not recorded" on every run teaches nothing, so absent fields render
-  // nothing at all rather than a placeholder.
-  for (const row of suiteLineageOf(run)) definition(dl, row.label, row.value);
-  if (score) {
-    const eventual = score.eventualSuccess && typeof score.eventualSuccess === 'object' ? score.eventualSuccess : null;
-    if (eventual) {
-      definition(
-        dl,
-        'eventual success',
-        `${fmtPct(eventual.rate)} (95% CI ${fmtPct(eventual.low)} to ${fmtPct(eventual.high)}), ${fmtInt(eventual.k)} of ${fmtInt(eventual.n)}`
-      );
-    }
-    definition(dl, 'destructive calls without confirmation', fmtInt(score.destructiveWithoutConfirmation));
-    const drift = score.schemaDrift && typeof score.schemaDrift === 'object' ? score.schemaDrift : null;
-    if (drift) {
-      definition(
-        dl,
-        'output schema drift',
-        drift.checked ? (drift.drifted ? String(drift.detail || 'drift observed') : 'checked, none observed') : 'not checked'
-      );
-    }
-  }
-  wrap.appendChild(dl);
-
-  const ambiguous = score && Array.isArray(score.ambiguousParameters) ? score.ambiguousParameters : [];
-  if (ambiguous.length > 0) {
-    wrap.appendChild(el('h4', null, 'Ambiguous parameters'));
-    const list = el('ul', 'finding-list');
-    for (const item of ambiguous) {
-      const li = el('li', 'finding is-fail');
-      const head = el('div', 'finding-head');
-      head.appendChild(el('span', 'finding-id', `${item.tool}.${item.param}`));
-      head.appendChild(evidenceLink(run, 'recorded session'));
-      li.appendChild(head);
-      li.appendChild(el('p', 'finding-detail', String(item.why || 'no explanation recorded')));
-      list.appendChild(li);
-    }
-    wrap.appendChild(list);
-  }
-
-  const rewrites = Array.isArray(run.rewrites) ? run.rewrites : [];
-  if (rewrites.length > 0) {
-    wrap.appendChild(el('h4', null, 'Proposed rewrites'));
-    const list = el('ul', 'rewrite-list');
-    for (const rewrite of rewrites) {
-      const li = el('li');
-      li.appendChild(el('div', 'rewrite-tool', String(rewrite.tool || 'unnamed tool')));
-      li.appendChild(el('p', 'rewrite-current', `current: ${String(rewrite.current || '')}`));
-      li.appendChild(el('p', 'rewrite-proposed', `proposed: ${String(rewrite.proposed || '')}`));
-      const why = el('p', 'rewrite-why');
-      why.appendChild(el('span', null, String(rewrite.causalEvidence || 'no causal evidence recorded')));
-      why.appendChild(evidenceLink(run, 'recorded sessions'));
-      li.appendChild(why);
-      list.appendChild(li);
-    }
-    wrap.appendChild(list);
-  }
-
-  const links = run.traceLinks && typeof run.traceLinks === 'object' ? run.traceLinks : null;
-  wrap.appendChild(el('h4', null, 'Tapes'));
-  if (!links) {
-    wrap.appendChild(el('p', 'is-missing', 'no tapes were published for this run'));
-  } else {
-    const list = el('ul', 'trace-list');
-    const mcp = el('li');
-    mcp.appendChild(el('span', null, 'MCP wire plane: '));
-    mcp.appendChild(link(links.mcp, String(links.mcp || 'not published')));
-    list.appendChild(mcp);
-    const agent = el('li');
-    agent.appendChild(el('span', null, 'agent plane: '));
-    agent.appendChild(link(links.agent, String(links.agent || 'not published')));
-    list.appendChild(agent);
-    wrap.appendChild(list);
-  }
-  return wrap;
+  return section;
 }
 
 /**
@@ -2631,9 +3290,8 @@ function scoreBlock(run) {
  * That is why there is no "about" and no per run assumption anywhere in this
  * block. A run whose record carries no dollars gets sentences and no figures.
  */
-function costBlock(run) {
-  const wrap = el('div', 'panel-block panel-cost');
-  wrap.appendChild(el('h4', null, 'What this run cost'));
+function costTier(run) {
+  const section = tier('tier-2', null, 'What this run cost');
   const cost = runCostOf(run);
   const activity = modelActivityOf(run);
   const judge = cost.judge;
@@ -2670,10 +3328,7 @@ function costBlock(run) {
         dl,
         'judge spend by phase',
         judge.byPhase
-          .map(
-            (phase) =>
-              `${phase.phase || 'unnamed phase'} ${fmtInt(phase.calls)} ${phase.calls === 1 ? 'call' : 'calls'}`
-          )
+          .map((phase) => `${phase.phase || 'unnamed phase'} ${fmtInt(phase.calls)} ${phase.calls === 1 ? 'call' : 'calls'}`)
           .join(', ')
       );
     }
@@ -2693,23 +3348,23 @@ function costBlock(run) {
   }
   const total = costTotalLine(cost);
   if (total) definition(dl, total.label, total.value);
-  wrap.appendChild(dl);
-  if (total && total.note) wrap.appendChild(el('p', 'panel-note', total.note));
+  section.appendChild(dl);
+  if (total && total.note) section.appendChild(el('p', 'tier-note', total.note));
 
   if (cost.totalUsd === null) {
-    wrap.appendChild(
+    section.appendChild(
       el(
         'p',
-        'panel-note',
+        'tier-note',
         'This record carries no dollars, so this page prints none for this run. An unpriced model and a model that never ran produce the same absent figure, and neither is filled in with an assumption.'
       )
     );
   } else {
     const basis = cost.basis;
-    wrap.appendChild(
+    section.appendChild(
       el(
         'p',
-        'panel-note',
+        'tier-note',
         `Measured from the token counts recorded on this run${
           basis.source ? `, converted at the ${basis.source} price table` : ''
         }${basis.asOf ? ` as of ${basis.asOf}` : ''}. The tokens are counted, the rates are published, and nothing here is sampled or averaged from other runs.`
@@ -2721,240 +3376,416 @@ function costBlock(run) {
   // them and the list names them.
   const alreadyNamed = Boolean(total && total.floor) && cost.excluded.length === 1;
   if (cost.excluded.length > 0 && !alreadyNamed) {
-    wrap.appendChild(el('p', 'panel-note', 'Outside that figure, named rather than estimated:'));
+    section.appendChild(el('p', 'tier-note', 'Outside that figure, named rather than estimated:'));
     const list = el('ul', 'methods-list');
     for (const item of cost.excluded) list.appendChild(el('li', null, item));
-    wrap.appendChild(list);
+    section.appendChild(list);
   }
-  // The harness's own notes on this block, verbatim. Its degradations are not
-  // repeated here: partial pricing, an unpriced judge model and calls with no
-  // usage block are all in the excluded list above, where the label that calls
-  // the figure a floor reads them from.
   if (judge.notes.length > 0) {
     const list = el('ul', 'methods-list');
     for (const note of judge.notes) list.appendChild(el('li', null, note));
-    wrap.appendChild(list);
+    section.appendChild(list);
   }
-  // The runner figure is counted off the tape, so the tape is linked here the
-  // same way every other claim on this page links to what justifies it.
-  const evidence = el('p', 'story-evidence');
+  const pointer = el('p', 'tier-note');
+  const anchor = el('a', null, 'What is not in these numbers');
+  anchor.href = '#methods-not-in-numbers';
+  pointer.appendChild(el('span', null, 'The same distinction across the whole pass: '));
+  pointer.appendChild(anchor);
+  pointer.appendChild(el('span', null, '.'));
+  section.appendChild(pointer);
+  const evidence = el('p', 'evidence-line');
   evidence.appendChild(el('span', null, 'Token counts behind the runner figure are on the recording: '));
-  evidence.appendChild(evidenceLink(run, 'open the recorded session'));
-  wrap.appendChild(evidence);
-  return wrap;
+  evidence.appendChild(evidenceLink(run, 'open the recorded session', 'the runner token counts'));
+  section.appendChild(evidence);
+  return section;
 }
 
-/**
- * The extension ledger for a gate whose story is not being told elsewhere on
- * this panel, so a scored run that reached its number through extensions still
- * shows the sequence that produced it.
- */
-function extensionBlock(run, gates) {
-  const wrap = el('div', 'panel-block panel-extensions');
-  wrap.appendChild(el('h4', null, 'Extension ledger'));
-  for (const ledger of gates) {
-    const section = el('div', 'story is-secondary');
-    const head = el('div', 'story-head');
-    head.appendChild(el('span', 'story-gate', `${ledger.gateLabel} gate`));
-    head.appendChild(
-      el('span', 'story-role', `${ledger.consumed} ${ledger.consumed === 1 ? 'extension' : 'extensions'} consumed`)
-    );
-    section.appendChild(head);
-    const dl = el('dl', 'story-figures');
-    for (const figure of extensionFigures(ledger)) {
-      const cell = el('div', 'story-figure');
-      cell.appendChild(el('dt', null, figure.label));
-      cell.appendChild(el('dd', null, figure.value));
-      dl.appendChild(cell);
-    }
-    section.appendChild(dl);
-    for (const line of extensionSentences(ledger)) section.appendChild(el('p', 'story-line', line));
-    const evidence = el('p', 'story-evidence');
-    evidence.appendChild(el('span', null, 'Every count above is read from this run: '));
-    evidence.appendChild(evidenceLink(run, 'open the recorded session'));
-    section.appendChild(evidence);
-    wrap.appendChild(section);
-  }
-  return wrap;
-}
-
-/**
- * `report.methods`, rendered verbatim.
- *
- * This is where the harness discloses what it diverged on and what it knows is
- * biased, including the one thing this page most needs a reader to know: on a
- * screened suite the null baseline measures a suite the screen already purged
- * of null answerable tasks. The page asserts that no threshold was ever
- * loosened, which is true, and a disclosure the leaderboard drops on the floor
- * would make that assertion read as more than it is.
- */
-function methodsBlock(run) {
-  const wrap = el('div', 'panel-block panel-methods');
-  const notes = Array.isArray(run.methods) ? run.methods.filter((n) => typeof n === 'string' && n.length > 0) : [];
+function identityTier(run) {
+  const section = tier('tier-2', null, 'Run record');
+  const dl = el('dl', 'panel-dl');
+  const meta = asObject(run.run);
+  definition(dl, 'run id', String(meta.id || 'not recorded'));
+  definition(dl, 'started', String(meta.startedAt || 'not recorded'));
+  definition(dl, 'harness', String(meta.harnessVersion || 'not recorded'));
+  definition(dl, 'runner model', runnerModelOf(run));
+  definition(dl, 'judge model', String(meta.judgeModel || 'not recorded'));
+  definition(dl, 'suite hash', String(meta.suiteHash || 'not recorded'));
+  definition(dl, 'task budget', fmtInt(meta.taskBudget));
   const screen = nullScreenOf(run);
-  const ledgers = extensionLedgers(run);
-
-  // Collapsible, and open. The reader can fold it away, but nothing here is
-  // hidden by default: this is the block where the harness states what it
-  // diverged on and which way its known biases point, and a disclosure that
-  // starts closed inside a panel that already starts closed is a disclosure
-  // nobody reads.
-  const details = el('details', 'methods-details');
-  details.open = true;
-  const summary = el('summary', 'methods-summary');
-  summary.appendChild(el('span', 'methods-title', 'Method notes and known bias'));
-  summary.appendChild(
-    el('span', 'methods-count', notes.length === 0 ? 'no notes recorded' : `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}, verbatim`)
-  );
-  details.appendChild(summary);
-
-  // Two facts are stated from the record's own fields rather than left to the
-  // prose: whether the generation time null screen ran, and what the extension
-  // protocol was. Both are registered before the first call, and both change
-  // what every number on the row means.
-  const registered = el('dl', 'panel-dl methods-registered');
-  let screenLine;
-  if (!screen.enabled) {
-    screenLine =
-      'no generation time null screen ran for this suite, so the run time null baseline measures an unscreened suite.';
-  } else if (screen.screened === null) {
-    screenLine = `on${screen.model ? ` (${screen.model})` : ''}, and this record does not carry its counts, so how many candidates it saw cannot be stated here.`;
-  } else if (screen.screened === 0) {
-    screenLine = `on${screen.model ? ` (${screen.model})` : ''}, but no candidate reached it on this run, so nothing was deleted and this suite is unscreened in practice.`;
-  } else {
-    screenLine = `on${screen.model ? ` (${screen.model})` : ''}: ${fmtInt(screen.dropped)} of ${fmtInt(
-      screen.screened
-    )} screened candidates were answerable with no server at all and were deleted before the suite was hashed. The run time null baseline on this suite is therefore biased downward by construction.`;
-  }
-  definition(registered, 'null screen', screenLine);
-  // The protocol line is read from the record rather than from the bare policy
-  // object: a zero policy on a record that states the protocol is a registered
-  // choice, and a zero policy on a record that states nothing is a run written
-  // before the protocol existed. Those are different facts and neither may be
-  // printed as the other.
-  const protocol = extensionProtocolOf(run);
+  const generator = generatorBadgeOf(run);
   definition(
-    registered,
-    'extension protocol',
-    protocol.registered && ledgers.length > 0
-      ? `${extensionProtocolSentence(protocol)} On this run the consumed batches were ${ledgers
-          .map((l) => `${l.consumed} on the ${l.gateLabel} gate`)
-          .join(', ')}.`
-      : extensionProtocolSentence(protocol)
-  );
-  details.appendChild(registered);
+    dl,
+    'task generator',
+    `${generator.label}${
+      screen.enabled
+        ? `, null screen on: ${fmtInt(screen.dropped)} of ${fmtInt(screen.screened)} screened candidates deleted before the suite hash`
+        : ', no generation time null screen'
+    }`
+  ).title = generator.note;
+  // Suite lineage, only where the record carries it. A row that reads
+  // "not recorded" on every run teaches nothing, so absent fields render
+  // nothing at all rather than a placeholder.
+  for (const row of suiteLineageOf(run)) definition(dl, row.label, row.value);
+  const score = scoreOf(run);
+  if (score) {
+    definition(dl, 'destructive calls without confirmation', fmtInt(score.destructiveWithoutConfirmation));
+    const drift = asObject(score.schemaDrift);
+    if (Object.keys(drift).length > 0) {
+      definition(
+        dl,
+        'output schema drift',
+        drift.checked ? (drift.drifted ? String(drift.detail || 'drift observed') : 'checked, none observed') : 'not checked'
+      );
+    }
+  }
+  section.appendChild(dl);
 
-  if (notes.length === 0) {
-    details.appendChild(
+  const ambiguous = score && Array.isArray(score.ambiguousParameters) ? score.ambiguousParameters : [];
+  if (ambiguous.length > 0) {
+    section.appendChild(el('h4', null, 'Ambiguous parameters'));
+    const list = el('ul', 'finding-list');
+    for (const item of ambiguous) {
+      const li = el('li', 'finding is-fault');
+      const head = el('div', 'finding-head');
+      head.appendChild(el('span', 'finding-id', `${item.tool}.${item.param}`));
+      li.appendChild(head);
+      li.appendChild(el('p', 'finding-detail', String(item.why || 'no explanation recorded')));
+      const evidence = el('p', 'evidence-line');
+      evidence.appendChild(evidenceLink(run, 'recorded session', `ambiguous parameter ${item.tool}.${item.param}`));
+      li.appendChild(evidence);
+      list.appendChild(li);
+    }
+    section.appendChild(list);
+  }
+
+  const rewrites = Array.isArray(run.rewrites) ? run.rewrites : [];
+  if (rewrites.length > 0) {
+    section.appendChild(el('h4', null, 'Proposed rewrites'));
+    const list = el('ul', 'rewrite-list');
+    for (const rewrite of rewrites) {
+      const li = el('li');
+      li.appendChild(el('div', 'rewrite-tool', String(rewrite.tool || 'unnamed tool')));
+      li.appendChild(el('p', 'rewrite-current', `current: ${String(rewrite.current || '')}`));
+      li.appendChild(el('p', 'rewrite-proposed', `proposed: ${String(rewrite.proposed || '')}`));
+      const why = el('p', 'rewrite-why');
+      why.appendChild(el('span', null, String(rewrite.causalEvidence || 'no causal evidence recorded')));
+      why.appendChild(evidenceLink(run, 'recorded sessions', `rewrite for ${String(rewrite.tool || 'unnamed tool')}`));
+      li.appendChild(why);
+      list.appendChild(li);
+    }
+    section.appendChild(list);
+  }
+
+  const links = run.traceLinks && typeof run.traceLinks === 'object' ? run.traceLinks : null;
+  section.appendChild(el('h4', null, 'Chain of custody'));
+  if (!links) {
+    section.appendChild(el('p', 'is-missing', 'no tapes were published for this run'));
+  } else {
+    const list = el('ul', 'trace-list');
+    const mcp = el('li');
+    mcp.appendChild(el('span', 'trace-key', 'MCP wire plane'));
+    mcp.appendChild(traceLink(links.mcp));
+    list.appendChild(mcp);
+    const agent = el('li');
+    agent.appendChild(el('span', 'trace-key', 'agent plane'));
+    agent.appendChild(traceLink(links.agent));
+    list.appendChild(agent);
+    section.appendChild(list);
+  }
+  return section;
+}
+
+/** A trace url, linked where it is safe and printed in full where it is not. */
+function traceLink(url) {
+  return link(url, String(url || 'not published'), 'trace-link');
+}
+
+/** TIER 3: collapsed by default, one per group. Nothing here is hidden. */
+function foldedTier(title, count, build) {
+  const details = el('details', 'fold');
+  const summary = el('summary', 'fold-summary');
+  summary.appendChild(el('span', 'fold-title', title));
+  if (count) summary.appendChild(el('span', 'fold-count', count));
+  details.appendChild(summary);
+  build(details);
+  return details;
+}
+
+function extensionFold(run, ledgers) {
+  return foldedTier(
+    'Extension ledger',
+    `${ledgers.length} ${ledgers.length === 1 ? 'gate' : 'gates'} consumed batches`,
+    (details) => {
+      for (const ledger of ledgers) {
+        const block = el('div', 'story');
+        const head = el('div', 'story-head');
+        head.appendChild(el('span', 'story-gate', `${ledger.gateLabel} gate`));
+        head.appendChild(
+          el('span', 'story-role', `${ledger.consumed} ${ledger.consumed === 1 ? 'extension' : 'extensions'} consumed`)
+        );
+        block.appendChild(head);
+        const figures = extensionFigures(ledger);
+        if (figures.length > 0) block.appendChild(figureGrid(figures));
+        for (const line of extensionSentences(ledger)) block.appendChild(el('p', 'story-line', line));
+        const evidence = el('p', 'evidence-line');
+        evidence.appendChild(el('span', null, 'Every count above is read from this run: '));
+        evidence.appendChild(evidenceLink(run, 'open the recorded session', `the ${ledger.gateLabel} extension ledger`));
+        block.appendChild(evidence);
+        details.appendChild(block);
+      }
+    }
+  );
+}
+
+/**
+ * `report.methods`, rendered verbatim, minus the notes this generator records on
+ * every one of its runs. Those are published once under Methods and linked from
+ * here, so a reader still gets every word without reading it twenty-two times.
+ */
+function methodsFold(run, standing) {
+  const own = ownMethodNotes(run, standing);
+  const screen = nullScreenOf(run);
+  const protocol = extensionProtocolOf(run);
+  const ledgers = extensionLedgers(run);
+  const count =
+    own.own.length === 0
+      ? own.standing > 0
+        ? `no notes of its own, ${own.standing} recorded on every run`
+        : 'no notes recorded'
+      : `${own.own.length} ${own.own.length === 1 ? 'note' : 'notes'} of its own${
+          own.standing > 0 ? `, ${own.standing} recorded on every run` : ''
+        }`;
+
+  return foldedTier('Method notes and known bias', count, (details) => {
+    // Two facts are stated from the record's own fields rather than left to the
+    // prose: whether the generation time null screen ran, and what the extension
+    // protocol was. Both are registered before the first call, and both change
+    // what every number on the row means.
+    const registered = el('dl', 'panel-dl');
+    let screenLine;
+    if (!screen.enabled) {
+      screenLine =
+        'no generation time null screen ran for this suite, so the run time null baseline measures an unscreened suite.';
+    } else if (screen.screened === null) {
+      screenLine = `on${screen.model ? ` (${screen.model})` : ''}, and this record does not carry its counts, so how many candidates it saw cannot be stated here.`;
+    } else if (screen.screened === 0) {
+      screenLine = `on${screen.model ? ` (${screen.model})` : ''}, but no candidate reached it on this run, so nothing was deleted and this suite is unscreened in practice.`;
+    } else {
+      screenLine = `on${screen.model ? ` (${screen.model})` : ''}: ${fmtInt(screen.dropped)} of ${fmtInt(
+        screen.screened
+      )} screened candidates were answerable with no server at all and were deleted before the suite was hashed. The run time null baseline on this suite is therefore biased downward by construction.`;
+    }
+    definition(registered, 'null screen', screenLine);
+    definition(
+      registered,
+      'extension protocol',
+      protocol.registered && ledgers.length > 0
+        ? `${extensionProtocolSentence(protocol)} On this run the consumed batches were ${ledgers
+            .map((l) => `${l.consumed} on the ${l.gateLabel} gate`)
+            .join(', ')}.`
+        : extensionProtocolSentence(protocol)
+    );
+    details.appendChild(registered);
+
+    if (own.own.length > 0) {
+      details.appendChild(
+        el(
+          'p',
+          'tier-note',
+          'Written by the harness with this run and reproduced verbatim. These are the notes that belong to this run.'
+        )
+      );
+      const list = el('ul', 'methods-list');
+      for (const note of own.own) list.appendChild(el('li', null, note));
+      details.appendChild(list);
+    } else if (own.total === 0) {
+      details.appendChild(
+        el(
+          'p',
+          'is-missing',
+          'This record carries no methods block, so the two lines above are everything it states about its own method. Newer runs carry the harness notes here verbatim.'
+        )
+      );
+    }
+    if (own.standing > 0) {
+      const note = el('p', 'tier-note');
+      note.appendChild(
+        el(
+          'span',
+          null,
+          `This run also carries ${own.standing} ${own.standing === 1 ? 'note' : 'notes'} that ${own.generator} records on every one of its runs. ${
+            own.standing === 1 ? 'It is' : 'They are'
+          } published once, verbatim: `
+        )
+      );
+      const anchor = el('a', null, 'Recorded on every run');
+      anchor.href = '#methods-standing';
+      note.appendChild(anchor);
+      note.appendChild(el('span', null, '.'));
+      details.appendChild(note);
+    }
+  });
+}
+
+function rawCountsFold(run) {
+  const records = Array.isArray(asObject(run.gates).records) ? run.gates.records : [];
+  const rows = records
+    .map((record) => ({ gate: gateLabel(asObject(record).gate), line: detailLine(asObject(record).detail) }))
+    .filter((row) => row.line !== null);
+  const notes = Array.isArray(run.scoreNotes) ? run.scoreNotes.filter((n) => typeof n === 'string' && n) : [];
+  const stats = asObject(run.trace_stats);
+  if (rows.length === 0 && notes.length === 0 && Object.keys(stats).length === 0) return null;
+  return foldedTier('Raw counts, as recorded', `${rows.length} gate ${rows.length === 1 ? 'detail' : 'details'}`, (details) => {
+    if (notes.length > 0) {
+      details.appendChild(el('p', 'tier-note', 'Honesty notes the harness attached to this run:'));
+      const list = el('ul', 'methods-list');
+      for (const note of notes) list.appendChild(el('li', null, note));
+      details.appendChild(list);
+    }
+    if (rows.length > 0) {
+      const dl = el('dl', 'panel-dl');
+      for (const row of rows) definition(dl, row.gate, row.line);
+      details.appendChild(dl);
+    }
+    const totals = traceToolTotals(run);
+    if (totals.names > 0) {
+      details.appendChild(
+        el(
+          'p',
+          'tier-note',
+          `Tape totals: ${totals.calls} tool ${totals.calls === 1 ? 'call' : 'calls'} across ${totals.names} tool ${
+            totals.names === 1 ? 'name' : 'names'
+          }, ${totals.errors} error ${totals.errors === 1 ? 'result' : 'results'}, ${totals.pending} with no matching response.`
+        )
+      );
+    }
+  });
+}
+
+/**
+ * Zone D: one run, in full, at its own address.
+ *
+ * Three tiers. Tier 1 is the comparison that decided the run, drawn. Tier 2 is
+ * the audit trail: gate ledger, probes, tools, cost, identity and the tapes.
+ * Tier 3 folds away the sequences and the verbatim notes, which are published
+ * and reachable but do not compete with the finding.
+ */
+export function renderRecord(node, run, context) {
+  if (!node) return;
+  node.textContent = '';
+  const ctx = asObject(context);
+  const standing = ctx.standing instanceof Map ? ctx.standing : standingNotes([run]);
+  const cohort = ctx.cohort || null;
+
+  const inner = el('div', 'record-inner');
+
+  const head = el('header', 'record-head');
+  const close = el('button', 'record-close', 'Close');
+  close.type = 'button';
+  close.setAttribute('data-close-record', 'true');
+  close.title = 'Close this record and go back to the board';
+  head.appendChild(close);
+  head.appendChild(el('p', 'record-eyebrow', 'Run record'));
+  const title = el('h2', 'record-title', slugOf(run));
+  title.id = 'record-title';
+  title.setAttribute('tabindex', '-1');
+  head.appendChild(title);
+  const server = asObject(run.server);
+  const url = el('p', 'record-url');
+  url.appendChild(el('code', null, typeof server.url === 'string' ? server.url : 'url not recorded'));
+  head.appendChild(url);
+  head.appendChild(el('p', 'record-id', runIdentityLine(run)));
+  const chips = el('div', 'record-chips');
+  const generator = generatorBadgeOf(run);
+  chips.appendChild(chip(generator.label, generator.known ? 'chip-gen' : 'chip-gen chip-unknown', generator.note));
+  chips.appendChild(chip(runnerModelOf(run), 'chip-runner'));
+  const credential = typeof server.credentialContext === 'string' ? server.credentialContext : null;
+  if (credential) chips.appendChild(chip(credential, `chip-cred chip-cred-${credential.replace(/[^a-z-]/gi, '')}`, CREDENTIAL_NOTES[credential] || null));
+  if (cohort && cohort.total > 1 && cohort.attempt !== null) {
+    chips.appendChild(chip(`Run ${cohort.attempt} of ${cohort.total} for this server`, 'chip-attempt', 'Reruns of one server are separate attempts, each with its own task suite and its own outcome. Every one of them stays on this page and none of them is a best of.'));
+  }
+  head.appendChild(chips);
+  inner.appendChild(head);
+
+  const deciding = decidingTier(run);
+  inner.appendChild(deciding.section);
+
+  const reading = outcomeReadingTier(run);
+  if (reading) inner.appendChild(reading);
+  const secondary = secondaryTier(run, deciding.stories);
+  if (secondary) inner.appendChild(secondary);
+
+  inner.appendChild(gateTier(run));
+  inner.appendChild(probeTier(run));
+  inner.appendChild(toolTier(run));
+  inner.appendChild(costTier(run));
+  inner.appendChild(identityTier(run));
+
+  const folds = el('div', 'folds');
+  // The extension sequence is an audit trail, so it is told once, here, below
+  // the comparison that decided the run. A scored run that reached its number
+  // through extensions shows the same sequence in the same place.
+  const ledgers = extensionLedgers(run);
+  if (ledgers.length > 0) folds.appendChild(extensionFold(run, ledgers));
+  folds.appendChild(methodsFold(run, standing));
+  const raw = rawCountsFold(run);
+  if (raw) folds.appendChild(raw);
+  inner.appendChild(folds);
+
+  if (cohort && cohort.total > 1 && cohort.siblings.length > 0) {
+    const section = tier('tier-2', null, 'Other runs of this server');
+    section.appendChild(
       el(
         'p',
-        'is-missing',
-        'This record carries no methods block, so the two lines above are everything it states about its own method. Newer runs carry the harness notes here verbatim.'
+        'tier-note',
+        'Reruns are separate attempts, not a best of. Each drive generated its own task suite under its own hash, and every one of them is published.'
       )
     );
-    wrap.appendChild(details);
-    return wrap;
+    const list = el('ul', 'sibling-list');
+    for (const sibling of cohort.siblings) {
+      list.appendChild(
+        el(
+          'li',
+          null,
+          `${sibling.suitePrefix || 'suite not recorded'} (${sibling.outcome}${sibling.startedAt ? `, ${sibling.startedAt}` : ''})`
+        )
+      );
+    }
+    section.appendChild(list);
+    inner.appendChild(section);
   }
 
-  details.appendChild(
-    el(
-      'p',
-      'panel-note',
-      'Written by the harness with the run and reproduced verbatim. Divergences from the ported gate math, and the biases this design knows it has, are stated here rather than summarised away.'
-    )
+  // A way out at the end as well as at the top. A long record whose only exit is
+  // back where you came from is the trap this rebuild set out to remove.
+  const foot = el('div', 'record-foot');
+  const back = el('button', 'record-close record-close-foot', 'Close this record');
+  back.type = 'button';
+  back.setAttribute('data-close-record', 'true');
+  foot.appendChild(back);
+  foot.appendChild(
+    el('p', 'record-foot-note', 'Closing returns you to this run’s row on the board, where it stays marked.')
   );
-  const list = el('ul', 'methods-list');
-  for (const note of notes) list.appendChild(el('li', null, note));
-  details.appendChild(list);
-  wrap.appendChild(details);
-  return wrap;
-}
+  inner.appendChild(foot);
 
-function detailPanel(run, panelId) {
-  const tr = el('tr', 'detail-row');
-  tr.id = panelId;
-  tr.hidden = true;
-  const td = el('td', 'detail-cell');
-  td.colSpan = 7;
-  const inner = el('div', 'detail-inner');
-  // A refused run leads with why. The gate ledger below is the audit trail, not
-  // the explanation, and putting the ledger first has readers guessing again.
-  if (run.outcome !== 'SCORED') inner.appendChild(refusalBlock(run));
-  inner.appendChild(scoreBlock(run));
-  // Extensions a refusal story already told are not told twice. What is left is
-  // a gate that consumed extensions and still passed, which no other block on
-  // this panel would show.
-  const told = new Set(refusalStories(run).map((story) => story.gate));
-  const untold = extensionLedgers(run).filter((ledger) => !told.has(ledger.gate));
-  if (untold.length > 0) inner.appendChild(extensionBlock(run, untold));
-  inner.appendChild(gateTable(run));
-  inner.appendChild(costBlock(run));
-  inner.appendChild(findingsBlock(run));
-  inner.appendChild(toolsBlock(run));
-  inner.appendChild(methodsBlock(run));
-  td.appendChild(inner);
-  tr.appendChild(td);
-  return tr;
+  node.appendChild(inner);
 }
 
 // ---------------------------------------------------------------------------
-// rows and board
+// summaries
 // ---------------------------------------------------------------------------
 
-function bandRow(text, note, className) {
-  const tr = el('tr', `band-row ${className || ''}`.trim());
-  const th = el('th');
-  th.colSpan = 7;
-  th.scope = 'colgroup';
-  th.appendChild(el('span', 'band-title', text));
-  if (note) th.appendChild(el('span', 'band-note', note));
-  tr.appendChild(th);
-  return tr;
+export function summarise(runs) {
+  const scored = runs.filter((run) => run && run.outcome === 'SCORED').length;
+  const refused = runs.length - scored;
+  const servers = new Set(runs.map((run) => slugOf(run))).size;
+  return { total: runs.length, scored, refused, servers };
 }
 
-function runRow(run, placement, index, cohort) {
-  const rows = [];
-  const refused = run.outcome !== 'SCORED';
-  const tr = el('tr', refused ? 'run-row is-refused-row' : 'run-row is-scored-row');
-  const panelId = `detail-${index}`;
-  if (placement && placement.tied) {
-    tr.classList.add('is-tied');
-    tr.dataset.tieGroup = String(placement.groupId);
-  }
-  // Rows of one server carry the same key wherever they sit in the table, so a
-  // rerun is findable across sections rather than reading as an unrelated row.
-  tr.dataset.server = slugOf(run);
-  if (cohort && cohort.total > 1) tr.classList.add('is-rerun');
-  tr.appendChild(serverCell(run, placement, cohort));
-  tr.appendChild(outcomeCell(run));
-  tr.appendChild(intervalCell(run, placement));
-  tr.appendChild(specCell(run));
-  tr.appendChild(hygieneCell(run));
-  tr.appendChild(credentialCell(run));
-  const replay = replayCell(run);
-  const closedLabel = refused ? 'Why refused' : 'Details';
-  const openLabel = refused ? 'Hide the reason' : 'Hide details';
-  const toggle = el('button', refused ? 'toggle toggle-refused' : 'toggle', closedLabel);
-  toggle.type = 'button';
-  toggle.setAttribute('aria-expanded', 'false');
-  toggle.setAttribute('aria-controls', panelId);
-  toggle.title = refused
-    ? 'Open the measured reason this run was refused'
-    : 'Open the run record, gate ledger and per tool numbers';
-  replay.appendChild(toggle);
-  tr.appendChild(replay);
-
-  const panel = detailPanel(run, panelId);
-  toggle.addEventListener('click', () => {
-    const open = toggle.getAttribute('aria-expanded') === 'true';
-    toggle.setAttribute('aria-expanded', open ? 'false' : 'true');
-    toggle.textContent = open ? closedLabel : openLabel;
-    panel.hidden = open;
-    tr.classList.toggle('is-open', !open);
-  });
-
-  rows.push(tr, panel);
-  return rows;
+export function summaryText(runs) {
+  const { total, scored, refused, servers } = summarise(runs);
+  if (total === 0) return 'No runs published yet.';
+  const noun = servers === 1 ? 'server' : 'servers';
+  return `${total} runs across ${servers} ${noun}. ${scored} scored, ${refused} refused. Refusals are results, not gaps.`;
 }
 
 /**
@@ -3011,194 +3842,8 @@ export function spendNote(stats) {
   return parts.join('; ');
 }
 
-/**
- * The masthead figures. Cost is the one number here that can be missing, and it
- * is labelled with the count of runs it covers rather than quietly summed over
- * everything, because a total that silently spans nine of sixteen runs is a
- * wrong number dressed as a right one.
- */
-export function renderStats(node, runs) {
-  if (!node) return;
-  node.textContent = '';
-  const stats = boardStats(runs);
-  const cells = [
-    { label: 'Servers tested', value: String(stats.servers), note: `${stats.runs} published ${stats.runs === 1 ? 'run' : 'runs'}` },
-    { label: 'Scored', value: String(stats.scored), note: stats.scored === 0 ? 'no run in this pass produced a number' : 'gates passed, numbers published' },
-    { label: 'Refused', value: String(stats.refused), note: 'each one names the gate that stopped it' },
-    {
-      label: stats.costIsFloor ? 'Measured model spend, a floor' : 'Measured model spend',
-      value:
-        stats.costUsd === null
-          ? 'none recorded'
-          : `${stats.costIsFloor ? 'at least ' : ''}${fmtUsd(stats.costUsd, 2)}`,
-      note: spendNote(stats)
-    }
-  ];
-  // The label says measured, so the figure has to be made only of numbers that
-  // were recorded. Everything the records do not carry is named below, without
-  // a number, rather than filled in.
-  const grid = el('dl', 'stat-grid');
-  for (const cell of cells) {
-    const item = el('div', 'stat');
-    item.appendChild(el('dt', 'stat-label', cell.label));
-    const dd = el('dd', 'stat-value', cell.value);
-    dd.appendChild(el('span', 'stat-note', cell.note));
-    item.appendChild(dd);
-    grid.appendChild(item);
-  }
-  node.appendChild(grid);
-  if (stats.scored === 0 && stats.runs > 0) {
-    const note = el('p', 'stat-strip-note');
-    note.textContent =
-      'Every run in this pass was refused. That is the published result, not a gap in the table: each row below carries the gate, the counts it measured and the recording behind them.';
-    node.appendChild(note);
-  }
-  // Cost honesty, stated where the cost figure is, not in a footnote. Every run
-  // uses two models: the runner drives the server and is on the agent tape, and
-  // the judge synthesises the suite and is on neither. A figure summed from the
-  // tapes is therefore the runner's spend, and calling it the cost of the pass
-  // would be an inference printed as a measurement.
-  if (stats.judgeRuns < stats.runs && stats.runs > 0) {
-    const missing = stats.runs - stats.judgeRuns;
-    const note = el('p', 'stat-strip-note');
-    note.textContent =
-      `${missing} of ${stats.runs} ${stats.runs === 1 ? 'run carries' : 'runs carry'} no record of what the judge model spent. ` +
-      'The judge generates the task suite and runs the destructiveness signal, and it writes to neither tape, so the figure above covers the runner model where a tape priced it, plus judge usage on the runs that record it. ' +
-      'The rest is not estimated here. A per run number on this page is either read from that run or absent, and a flat per run assumption is not a measurement.';
-    node.appendChild(note);
-  }
-  // Reruns, stated where the counts are. "There is no optional stopping here"
-  // is a rule about one run: its size and its extension budget are fixed before
-  // the first call. Nothing in the harness limits how often a server is driven
-  // again, so the honest defence is that every attempt stays published with its
-  // own identity and none of them is selected over another.
-  const reruns = rerunSummary(runs);
-  if (reruns.servers > 0) {
-    const note = el('p', 'stat-strip-note');
-    note.textContent =
-      `${reruns.servers} of ${reruns.totalServers} ${reruns.servers === 1 ? 'server has' : 'servers have'} more than one published run here, ${reruns.rows} rows in total. ` +
-      'A rerun is a separate attempt against a newly generated task suite, under its own suite hash, and it is published beside the earlier run rather than replacing it. ' +
-      'Every row carries its suite hash and start time so two attempts can be told apart. Nothing on this page keeps the better of two runs: the registered size and the extension budget are fixed inside a run, and across runs the defence is that no attempt is hidden.';
-    node.appendChild(note);
-  }
-  // The screen is a bias this page introduces and it is disclosed at the top of
-  // the board, not only inside a run's own methods block. A PROCEED on a
-  // screened suite is not the same evidence as a PROCEED on an unscreened one,
-  // and a reader who is not told cannot tell them apart.
-  if (stats.screenRuns > 0) {
-    const note = el('p', 'stat-strip-note');
-    note.textContent =
-      `${stats.screenRuns} of ${stats.runs} ${stats.runs === 1 ? 'run' : 'runs'} used a generation time null screen: candidates a model answered correctly with no server at all were deleted before the suite was hashed and before any gate ran. ` +
-      `The run time null baseline on those rows therefore measures the noise floor of an already screened suite and is biased downward by construction. The screen made ${stats.screenCalls} runner model ${stats.screenCalls === 1 ? 'call' : 'calls'} (${stats.screenInputTokens} input and ${stats.screenOutputTokens} output tokens) that are written to neither tape, so they are not in the spend above. Each row's method notes carry its own counts.`;
-    node.appendChild(note);
-  }
-}
-
-export function summarise(runs) {
-  const scored = runs.filter((run) => run && run.outcome === 'SCORED').length;
-  const refused = runs.length - scored;
-  const servers = new Set(runs.map((run) => slugOf(run))).size;
-  return { total: runs.length, scored, refused, servers };
-}
-
-export function summaryText(runs) {
-  const { total, scored, refused, servers } = summarise(runs);
-  if (total === 0) return 'No runs published yet.';
-  const noun = servers === 1 ? 'server' : 'servers';
-  return `${total} runs across ${servers} ${noun}. ${scored} scored, ${refused} refused. Refusals are rows, not gaps.`;
-}
-
-/** Render the whole table body. Pure in, DOM out. */
-export function renderBoard(tbody, runs) {
-  tbody.textContent = '';
-  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
-  if (usable.length === 0) {
-    const tr = el('tr', 'state-row');
-    const td = el('td', null, 'No runs in data/runs.json yet.');
-    td.colSpan = 7;
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-    return;
-  }
-
-  let index = 0;
-  // One pass over every published run, so a row knows about its server's other
-  // runs even when they sit in another band. Nothing is dropped here.
-  const cohorts = serverCohorts(usable);
-  const groups = rankGroups(usable);
-  const multiBand = groups.length > 1;
-  for (const group of groups) {
-    tbody.appendChild(
-      bandRow(
-        `Ranked under runner model ${group.runnerModel}, task generator ${group.generatorVersion}`,
-        multiBand
-          ? 'Ranked only within this band. Token accounting is not comparable across runner models, and admission and screen counts are not comparable across task generators.'
-          : 'Rankings hold within one runner model and one task generator. Both are pinned into every run record.',
-        'band-model'
-      )
-    );
-    for (const row of group.rows) {
-      for (const node of runRow(row.run, row, index++, cohortPlaceOf(cohorts, row.run))) tbody.appendChild(node);
-    }
-  }
-
-  const unranked = usable.filter((run) => !isRankable(run));
-  if (unranked.length > 0) {
-    // Refusals are not ranked, but they are still read against each other, and
-    // a v1 admission rate next to a v2 admission rate is two different
-    // measurements printed as one column. So the refused rows are grouped by
-    // generator too, with recorded generators first and records that predate the
-    // field last, and each group says what the grouping means.
-    const generators = [];
-    for (const run of unranked) {
-      const version = generatorVersionOf(run);
-      if (!generators.includes(version)) generators.push(version);
-    }
-    generators.sort((a, b) => {
-      const aKnown = a !== 'unrecorded generator';
-      const bKnown = b !== 'unrecorded generator';
-      if (aKnown !== bKnown) return aKnown ? -1 : 1;
-      return a.localeCompare(b);
-    });
-    const split = generators.length > 1;
-    for (const version of generators) {
-      // Grouped by server, and within a server oldest run first, so two runs of
-      // one server are read next to each other instead of as unrelated rows.
-      const group = unranked
-        .filter((run) => generatorVersionOf(run) === version)
-        .sort((a, b) => {
-          const byServer = slugOf(a).localeCompare(slugOf(b));
-          if (byServer !== 0) return byServer;
-          const at = runIdentityOf(a).startedAt;
-          const bt = runIdentityOf(b).startedAt;
-          if (at !== null && bt !== null && at !== bt) return at < bt ? -1 : 1;
-          return 0;
-        });
-      const known = version !== 'unrecorded generator';
-      tbody.appendChild(
-        bandRow(
-          split
-            ? `Refused, task generator ${known ? version : 'not recorded'}`
-            : 'Refused, and published as such',
-          split
-            ? `A gate stopped these runs before a score existed. ${
-                known
-                  ? 'Their admission, drop and screen counts come from this generator and are not comparable with counts from another one.'
-                  : 'These records predate the generator version field, so their counts are not comparable with a recorded generator.'
-              } The gate, its counts and its reason stand in place of the number.`
-            : 'A gate stopped these runs before a score existed, or the record carries no usable interval. The gate, its counts and its reason stand in place of the number.',
-          'band-refused'
-        )
-      );
-      for (const run of group) {
-        for (const node of runRow(run, null, index++, cohortPlaceOf(cohorts, run))) tbody.appendChild(node);
-      }
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
-// bootstrap
+// bootstrap: routing, filtering and the record view
 // ---------------------------------------------------------------------------
 
 export async function loadRuns(url = DATA_URL, fetchImpl) {
@@ -3211,30 +3856,202 @@ export async function loadRuns(url = DATA_URL, fetchImpl) {
   return data;
 }
 
+/** `#run/<id>` is the only route this page has. Everything else is the board. */
+export function routeFromHash(hash) {
+  const match = /^#run\/(.+)$/.exec(typeof hash === 'string' ? hash : '');
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
+const state = {
+  doc: null,
+  runs: [],
+  index: null,
+  standing: null,
+  cohorts: null,
+  openKey: null
+};
+
+function byId(id) {
+  return state.doc && typeof state.doc.getElementById === 'function' ? state.doc.getElementById(id) : null;
+}
+
+function openRecord(key) {
+  const node = byId('record');
+  const scrim = byId('record-scrim');
+  if (!node || !state.index || !state.index.byId.has(key)) return;
+  const run = state.index.byId.get(key);
+  renderRecord(node, run, {
+    standing: state.standing,
+    cohort: state.cohorts ? cohortPlaceOf(state.cohorts, run) : null
+  });
+  node.hidden = false;
+  if (scrim) scrim.hidden = false;
+  if (state.doc.body) state.doc.body.classList.add('has-record');
+
+  // The board keeps the row this record came from marked, so a reader never
+  // loses the place they descended from.
+  if (state.openKey && state.openKey !== key) {
+    const previous = byId(`row-${state.openKey}`);
+    if (previous) previous.classList.remove('is-open');
+  }
+  const row = byId(`row-${key}`);
+  if (row) {
+    row.classList.add('is-open');
+    // Only when the marked row is off screen, so opening a record from its own
+    // row does not shove the page under the reader.
+    if (typeof row.getBoundingClientRect === 'function' && typeof window !== 'undefined') {
+      const rect = row.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top > (window.innerHeight || 0)) row.scrollIntoView({ block: 'center' });
+    }
+  }
+  state.openKey = key;
+
+  const title = node.querySelector ? node.querySelector('.record-title') : null;
+  if (title && typeof title.focus === 'function') title.focus({ preventScroll: true });
+  if (typeof node.scrollTo === 'function') node.scrollTo(0, 0);
+  else node.scrollTop = 0;
+}
+
+function closeRecord() {
+  const node = byId('record');
+  const scrim = byId('record-scrim');
+  if (node) {
+    node.hidden = true;
+    node.textContent = '';
+  }
+  if (scrim) scrim.hidden = true;
+  if (state.doc && state.doc.body) state.doc.body.classList.remove('has-record');
+  if (state.openKey) {
+    const row = byId(`row-${state.openKey}`);
+    if (row) row.classList.remove('is-open');
+    const opener = row && row.querySelector ? row.querySelector('.act-record') : null;
+    if (opener && typeof opener.focus === 'function') opener.focus({ preventScroll: true });
+    state.openKey = null;
+  }
+}
+
+function applyRoute() {
+  const key = routeFromHash(typeof location !== 'undefined' ? location.hash : '');
+  if (key && state.index && state.index.byId.has(key)) openRecord(key);
+  else closeRecord();
+}
+
+function dismissRecord() {
+  if (typeof history !== 'undefined' && typeof history.replaceState === 'function') {
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+    closeRecord();
+  } else if (typeof location !== 'undefined') {
+    location.hash = '';
+  }
+}
+
+/**
+ * The filter above the board. Hiding a group is a view choice and never a
+ * silence: the ledger above always shows every count, and the control says how
+ * many rows are showing out of how many are published.
+ */
+function wireControls(runs) {
+  const host = byId('board-controls');
+  const board = byId('board');
+  const status = byId('summary-line');
+  if (!host || !board) return;
+  host.textContent = '';
+  const usable = Array.isArray(runs) ? runs.filter((run) => run && typeof run === 'object') : [];
+  const buckets = familyBuckets(usable, BOARD_ORDER);
+  const options = [{ key: 'all', label: 'All runs', short: 'All', count: usable.length }].concat(
+    buckets.map((bucket) => ({
+      key: bucket.key,
+      label: bucket.label,
+      short: FAMILY_SHORT[bucket.key] || bucket.label,
+      count: bucket.count
+    }))
+  );
+  const buttons = [];
+  for (const option of options) {
+    const button = el('button', 'filter', `${option.short} (${option.count})`);
+    button.type = 'button';
+    button.dataset.family = option.key;
+    button.setAttribute(
+      'aria-label',
+      `Show ${option.label.toLowerCase()}: ${option.count} of ${usable.length} published runs`
+    );
+    button.setAttribute('aria-pressed', option.key === 'all' ? 'true' : 'false');
+    button.addEventListener('click', () => {
+      board.dataset.filter = option.key;
+      for (const other of buttons) other.setAttribute('aria-pressed', other === button ? 'true' : 'false');
+      if (status) {
+        status.textContent =
+          option.key === 'all'
+            ? summaryText(usable)
+            : `Showing ${option.count} of ${usable.length} published runs: ${option.label.toLowerCase()}. Every run is still counted in the ledger above.`;
+      }
+    });
+    buttons.push(button);
+    host.appendChild(button);
+  }
+}
+
 export async function main(doc = typeof document !== 'undefined' ? document : null) {
   if (!doc) return;
-  const tbody = doc.getElementById('board-body');
+  state.doc = doc;
+  const board = doc.getElementById('board');
   const summary = doc.getElementById('summary-line');
-  const strip = doc.getElementById('stat-strip');
-  if (!tbody) return;
+  const ledger = doc.getElementById('ledger');
+  const thesis = doc.getElementById('thesis-count');
+  const order = doc.getElementById('board-order');
+  const disclosures = doc.getElementById('disclosures');
+  const standingHost = doc.getElementById('standing-notes');
+  if (!board) return;
   try {
     const runs = await loadRuns();
-    renderBoard(tbody, runs);
-    renderStats(strip, runs);
+    state.runs = runs;
+    state.index = indexRuns(runs);
+    state.standing = standingNotes(runs);
+    state.cohorts = serverCohorts(runs);
+
+    renderLedger(ledger, runs);
+    renderBoard(board, runs);
+    renderDisclosures(disclosures, runs);
+    renderStandingNotes(standingHost, runs);
+    if (thesis) thesis.textContent = thesisCountLine(boardStats(runs));
+    if (order) order.textContent = boardOrderLine(runs);
     if (summary) summary.textContent = summaryText(runs);
+    wireControls(runs);
+
+    doc.addEventListener('click', (event) => {
+      const target = event.target && event.target.closest ? event.target.closest('[data-close-record]') : null;
+      if (target) {
+        event.preventDefault();
+        dismissRecord();
+      }
+    });
+    doc.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && state.openKey) dismissRecord();
+    });
+    const scrim = doc.getElementById('record-scrim');
+    if (scrim) scrim.addEventListener('click', () => dismissRecord());
+    if (typeof window !== 'undefined') window.addEventListener('hashchange', applyRoute);
+    applyRoute();
   } catch (error) {
-    tbody.textContent = '';
-    const tr = el('tr', 'state-row is-error');
-    const td = el('td');
-    td.colSpan = 7;
-    td.textContent = `Could not render the leaderboard: ${error && error.message ? error.message : String(error)}`;
-    tr.appendChild(td);
-    tbody.appendChild(tr);
+    board.textContent = '';
+    board.appendChild(
+      el(
+        'p',
+        'state is-error',
+        `Could not render the board: ${error && error.message ? error.message : String(error)}`
+      )
+    );
     if (summary) summary.textContent = 'The run data did not load. Nothing below is current.';
-    if (strip) {
-      strip.textContent = '';
-      strip.appendChild(
-        el('p', 'stat-strip-note', 'The run data did not load, so there are no counts to show. Nothing on this page is current.')
+    if (thesis) thesis.textContent = 'The run data did not load, so there are no counts to show.';
+    if (ledger) {
+      ledger.textContent = '';
+      ledger.appendChild(
+        el('p', 'state is-error', 'The run data did not load, so there are no counts to show. Nothing on this page is current.')
       );
     }
   }

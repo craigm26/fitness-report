@@ -1,0 +1,2 @@
+{"v":1,"type":"meta","startedAt":"2026-08-20T18:03:06.421Z","label":"mcp-docs-astro-build","command":["fitness-report","https://mcp.docs.astro.build/mcp"],"mcpTapVersion":"0.1.0","kind":"llm","source":"fitness-report@0.1.0","producer":{"name":"fitness-report","version":"0.1.0","configHash":"bf1379b6eb95ad3fe4301f6b11787c979505e379aef90a57e0db91980ff90331"}}
+{"t":"2026-08-20T18:05:41.384Z","type":"end","reason":"eval_complete","durationMs":154963}
